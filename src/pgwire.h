@@ -3,30 +3,8 @@
 #ifndef PGWIRE_H
 #define PGWIRE_H
 
+#include "error.h"
 #include "univ.h"
-
-/* Error severities */
-static const char PGWIRE_ERROR[]   = "ERROR";
-static const char PGWIRE_FATAL[]   = "FATAL";
-static const char PGWIRE_PANIC[]   = "PANIC";
-static const char PGWIRE_WARNING[] = "WARNING";
-static const char PGWIRE_NOTICE[]  = "NOTICE";
-static const char PGWIRE_DEBUG[]   = "DEBUG";
-static const char PGWIRE_INFO[]	   = "INFO";
-static const char PGWIRE_LOG[]	   = "LOG";
-
-struct pgwire_error {
-	const char *severity;
-	/* Code: the SQLSTATE code for the error. Not localizable. Always
-	 * present.*/
-	const char *code;
-	/* Message: the primary human-readable error message. This should be
-	 * accurate but terse (typically one line). Always present. */
-	const char *message;
-	/* Detail: an optional secondary error message carrying more detail
-	 * about the problem. Might run to multiple lines. */
-	const char *detail;
-};
 
 struct pgwire_fielddesc {
 	/* The field name. */
@@ -78,7 +56,7 @@ struct pgwire_datarow {
 
 int pgwire_handshake(int socket);
 
-int pgwire_send_error(int socket, struct pgwire_error *error);
+int pgwire_send_error(int socket, struct err *err);
 
 int pgwire_read_query(int socket, char **query);
 

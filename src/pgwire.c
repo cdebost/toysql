@@ -1,5 +1,6 @@
 #include "pgwire.h"
 
+#include "error.h"
 #include <ctype.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -160,12 +161,12 @@ int pgwire_handshake(int sock)
 	if (read_startup_message(sock, &message))
 		return 1;
 	if (message.protocol_version.major != 3) {
-		struct pgwire_error error;
-		memset(&error, 0, sizeof(error));
-		error.severity = PGWIRE_FATAL;
-		error.code     = "08P01";
-		error.message  = "Only supports protocol version 3";
-		pgwire_send_error(sock, &error);
+		struct err err;
+		memset(&err, 0, sizeof(err));
+		err.severity = FATAL;
+		err.type     = ER_PROTOCOL_VIOLATION;
+		err.message  = "Only supports protocol version 3";
+		pgwire_send_error(sock, &err);
 		return 1;
 	}
 	if (write_auth_ok(sock))
@@ -175,7 +176,29 @@ int pgwire_handshake(int sock)
 	return 0;
 }
 
-int pgwire_send_error(int socket, struct pgwire_error *error)
+static const char *severity_str(enum errlevel l)
+{
+	switch (l) {
+	case LOG:
+		return "LOG";
+	case INFO:
+		return "INFO";
+	case DEBUG:
+		return "DEBUG";
+	case NOTICE:
+		return "NOTICE";
+	case WARNING:
+		return "WARNING";
+	case ERROR:
+		return "ERROR";
+	case FATAL:
+		return "FATAL";
+	case PANIC:
+		return "PANIC";
+	}
+}
+
+int pgwire_send_error(int socket, struct err *err)
 {
 	struct message message;
 	char	       buffer[1024];
@@ -185,17 +208,44 @@ int pgwire_send_error(int socket, struct pgwire_error *error)
 
 	ptr    = buffer;
 	*ptr++ = 'S';
-	ptr    = ut_write_str(ptr, error->severity);
+	ptr    = ut_write_str(ptr, severity_str(err->severity));
 	*ptr++ = 'V';
-	ptr    = ut_write_str(ptr, error->severity);
+	ptr    = ut_write_str(ptr, severity_str(err->severity));
 	*ptr++ = 'C';
-	ptr    = ut_write_str(ptr, error->code);
+	ptr    = ut_write_str(ptr, errcode(err->type));
 	*ptr++ = 'M';
-	ptr    = ut_write_str(ptr, error->message);
-	if (error->detail) {
+	ptr    = ut_write_str(ptr, err->message);
+	if (err->detail) {
 		*ptr++ = 'D';
-		ptr    = ut_write_str(ptr, error->detail);
+		ptr    = ut_write_str(ptr, err->detail);
 	}
+	if (err->hint) {
+		*ptr++ = 'H';
+		ptr    = ut_write_str(ptr, err->detail);
+	}
+	if (err->position > 0) {
+		char buffer[1024];
+		sprintf(buffer, "%lu", err->position);
+		*ptr++ = 'P';
+		ptr    = ut_write_str(ptr, buffer);
+	}
+	if (err->loc.file) {
+		*ptr++ = 'F';
+		ptr    = ut_write_str(ptr, err->loc.file);
+	}
+	if (err->loc.line) {
+		char buffer[1024];
+		sprintf(buffer, "%lu", err->loc.line);
+		*ptr++ = 'L';
+		ptr    = ut_write_str(ptr, buffer);
+	}
+	if (err->loc.routine) {
+		*ptr++ = 'R';
+		ptr    = ut_write_str(ptr, err->loc.routine);
+	}
+
+	fprintf(stderr, "[%s] %s (%s:%lu)\n", severity_str(err->severity),
+		err->message, err->loc.file, err->loc.line);
 
 	message.len	= (ptr - buffer) + sizeof(message.len);
 	message.payload = malloc(ptr - buffer);

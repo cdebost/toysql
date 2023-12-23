@@ -1,6 +1,7 @@
 #ifndef UNIV_H
 #define UNIV_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 typedef char	 byte;

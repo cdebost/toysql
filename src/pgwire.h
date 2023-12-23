@@ -3,6 +3,7 @@
 #ifndef PGWIRE_H
 #define PGWIRE_H
 
+#include "connection.h"
 #include "error.h"
 #include "univ.h"
 
@@ -54,18 +55,8 @@ struct pgwire_datarow {
 	struct pgwire_datarow_field *fields;
 };
 
-int pgwire_handshake(int socket);
+void pgwire_handle_connection(struct conn *conn);
 
-int pgwire_send_error(int socket, struct err *err);
-
-int pgwire_read_query(int socket, char **query);
-
-int pgwire_send_metadata(int socket, struct pgwire_rowdesc *row_desc);
-
-int pgwire_send_data(int socket, struct pgwire_datarow *row);
-
-int pgwire_complete_command(int socket);
-
-int pgwire_terminate(int socket);
+int pgwire_send_error(struct conn *conn, struct err *err);
 
 #endif // PGWIRE_H

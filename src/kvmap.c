@@ -35,15 +35,27 @@ static int kvmap_reserve(struct kvmap *map, size_t capacity)
 		return 0;
 
 	new_keys   = realloc(map->keys, sizeof(char *) * capacity);
-	new_values = realloc(map->keys, sizeof(char *) * capacity);
+	new_values = realloc(map->values, sizeof(char *) * capacity);
 
 	if (new_keys != NULL && new_values != NULL) {
+		map->capacity = capacity;
 		map->keys   = new_keys;
 		map->values = new_values;
 		return 0;
 	} else {
 		return 1;
 	}
+}
+
+const char *kvmap_get(struct kvmap *map, const char *key)
+{
+	int i;
+
+	for (i = 0; i < map->size; ++i) {
+		if (strcmp(map->keys[i], key) == 0)
+			break;
+	}
+	return i == map->size ? NULL : map->values[i];
 }
 
 int kvmap_put(struct kvmap *map, const char *key, const char *value)
@@ -54,7 +66,8 @@ int kvmap_put(struct kvmap *map, const char *key, const char *value)
 		return 1;
 
 	if (map->size == map->capacity) {
-		if (kvmap_reserve(map, 2 * map->capacity))
+		if (kvmap_reserve(map,
+				  map->capacity == 0 ? 1 : 2 * map->capacity))
 			return 1;
 	}
 

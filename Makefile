@@ -1,7 +1,8 @@
 CC=gcc
-CFLAGS=-g -pedantic -Wall -Wpedantic -Werror -fsanitize=address
-SRC=${wildcard ./src/*.c}
+CFLAGS=-g -Og -pedantic -Wall -Wpedantic -Werror -fsanitize=address
+SRC=${wildcard ./src/*.c ./src/**/*.c}
 OBJ=${patsubst %.c,build/%.o,${SRC}}
+INC=-Isrc
 TEST_SRC=${wildcard ./test/*.c}
 TEST_OBJ=${patsubst %.c,build/%.o,${TEST_SRC}}
 
@@ -13,14 +14,15 @@ build/bin/toysqld: ${OBJ}
 
 build/./src/%.o: src/%.c
 	mkdir -p ${dir $@}
-	${CC} ${CFLAGS} -o $@ $< -c
+	${CC} ${CFLAGS} ${INC} -o $@ $< -c
 
-build/bin/toysqltest: ${TEST_OBJ}
+build/bin/toysqltest: ${OBJ} ${TEST_OBJ}
+	mkdir -p build/bin
 	${CC} ${CFLAGS} ${TEST_OBJ} ${filter-out %/toysqld.o,${OBJ}} -o build/bin/toysqltest ${LDFLAGS}
 
 build/./test/%.o: test/%.c
 	mkdir -p ${dir $@}
-	${CC} ${CFLAGS} -Isrc -o $@ $< -c
+	${CC} ${CFLAGS} ${INC} -o $@ $< -c
 
 .PHONY: clean test
 

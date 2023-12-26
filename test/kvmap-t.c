@@ -20,4 +20,4 @@ static void test_kvmap()
 	EXPECT_EQ(kvmap_get(&m, "c"), (char *)NULL);
 }
 
-TEST_SUITE(kvmap, { TEST(test_kvmap) });
+TEST_SUITE(kvmap, TEST(test_kvmap));

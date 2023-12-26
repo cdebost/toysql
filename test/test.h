@@ -10,9 +10,9 @@ struct _test {
 	_test_fn    fn;
 };
 
-#define TEST_SUITE(name, tests)               \
-	struct _test  name##_tests[] = tests; \
-	unsigned long name##_tests_len =      \
+#define TEST_SUITE(name, ...)                           \
+	struct _test  name##_tests[] = { __VA_ARGS__ }; \
+	unsigned long name##_tests_len =                \
 		sizeof(name##_tests) / sizeof(struct _test)
 
 #define TEST(name)          \
@@ -45,16 +45,42 @@ extern int test_fail;
 		return;                                                  \
 	}
 
-#define EXPECT_STREQ(a, b)                                               \
-	if (strcmp(a, b) != 0) {                                         \
-		test_fail = 1;                                           \
-		fprintf(stderr,                                          \
-			"%s:%s:%d assertion failed: " #a " == " #b "\n", \
-			__func__, __FILE__, __LINE__);                   \
-		fprintf(stderr, "left: %s\n", a);                        \
-		fprintf(stderr, "right: %s\n", b);                       \
-		return;                                                  \
-	}
+#define EXPECT_STREQ(A, B)                                                 \
+	do {                                                               \
+		const char *a = A;                                         \
+		const char *b = B;                                         \
+		if (strcmp(a, b) != 0) {                                   \
+			test_fail = 1;                                     \
+			fprintf(stderr,                                    \
+				"%s:%s:%d assertion failed: " #A " == " #B \
+				"\n",                                      \
+				__func__, __FILE__, __LINE__);             \
+			fprintf(stderr, "left: %s\n", a);                  \
+			fprintf(stderr, "right: %s\n", b);                 \
+			return;                                            \
+		}                                                          \
+	} while (0)
+
+#define EXPECT_NULL(A)                                                         \
+	do {                                                                   \
+		void *a = A;                                                   \
+		if (a != NULL) {                                               \
+			test_fail = 1;                                         \
+			fprintf(stderr,                                        \
+				"%s:%s:%d assertion failed: " #A " == NULL\n", \
+				__func__, __FILE__, __LINE__);                 \
+			fprintf(stderr, "value: %#lx \"%s\"\n",                \
+				PRINT_POINTER_ARGS(A, a));                     \
+			return;                                                \
+		}                                                              \
+	} while (0)
+
+#define PRINT_POINTER_ARGS(E, p) \
+	(intptr_t)p, _Generic((E), \
+                        char *: (char *)p, \
+                        const char *: (char *)p, \
+                        default: "" \
+                        )
 
 #define _PARAM_FSTRING(X) \
 	_Generic((X), \
@@ -62,8 +88,11 @@ extern int test_fail;
                 char: "%c", \
                 long: "%ld", \
                 unsigned long: "%lu", \
+                long long: "%lld", \
+                unsigned long long: "%llu", \
                 char *: "%s", \
-                const char *: "%s" \
+                const char *: "%s", \
+			 default: "%d" \
         )
 
 #endif // TEST_H

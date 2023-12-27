@@ -1,6 +1,7 @@
 #ifndef TEST_H
 #define TEST_H
 
+#include <stdio.h>
 #include <string.h>
 
 typedef void (*_test_fn)(void);

@@ -37,10 +37,12 @@ struct err {
 	struct err_srcloc loc;
 };
 
-#define errlog(sev, ...) \
-	errpush(sev);    \
-	__VA_ARGS__;     \
-	errfinish(__FILE__, __LINE__, __func__)
+#define errlog(sev, ...)                                 \
+	do {                                             \
+		errpush(sev);                            \
+		__VA_ARGS__;                             \
+		errfinish(__FILE__, __LINE__, __func__); \
+	} while (0)
 
 void errpush(enum errlevel l);
 void errcode(enum errcode c);

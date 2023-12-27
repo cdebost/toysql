@@ -1,5 +1,7 @@
 #include "pgwire.h"
 
+#include "executor/select.h"
+#include "util/mem.h"
 #include <assert.h>
 #include <ctype.h>
 #include <stddef.h>
@@ -391,12 +393,62 @@ static int pgwire_complete_command(struct conn *conn)
 	return write_message(conn, &message);
 }
 
+static void make_row_desc(struct conn *conn, struct parse_tree *parse_tree,
+			  struct pgwire_rowdesc *rowdesc)
+{
+	int colno;
+
+	rowdesc->numfields = parse_tree->select_exprs.size;
+	rowdesc->fields =
+		mem_zalloc(&conn->mem_root, sizeof(struct pgwire_fielddesc) *
+						    rowdesc->numfields);
+	for (colno = 0; colno < rowdesc->numfields; ++colno) {
+		struct select_expr *expr =
+			(struct select_expr *)
+				parse_tree->select_exprs.data[colno];
+		if (expr->as.str != NULL) {
+			rowdesc->fields[colno].col =
+				mem_alloc(&conn->mem_root, expr->as.len + 1);
+			memcpy((char *)rowdesc->fields[colno].col, expr->as.str,
+			       expr->as.len);
+			((char *)rowdesc->fields[colno].col)[expr->as.len] =
+				'\0';
+		} else {
+			rowdesc->fields[colno].col = mem_alloc(
+				&conn->mem_root, sizeof("?col 123?") + 1);
+			snprintf((char *)rowdesc->fields[colno].col,
+				 sizeof("?col 123?"), "?col %d?", colno);
+		}
+		rowdesc->fields[colno].tableoid = 0;
+		rowdesc->fields[colno].colno	= 0;
+		rowdesc->fields[colno].typeoid =
+			expr->dtype == DTYPE_INT ? 0 : 18 /*char*/;
+		rowdesc->fields[colno].typelen = 20;
+		rowdesc->fields[colno].typmod  = 0;
+		rowdesc->fields[colno].format  = 0;
+	}
+}
+
+static void serialize_row(struct conn *conn, struct row *row,
+			  struct pgwire_datarow *dr)
+{
+	int colno;
+
+	dr->numfields = row->nfields;
+	dr->fields =
+		mem_alloc(&conn->mem_root,
+			  sizeof(struct pgwire_datarow_field) * row->nfields);
+	for (colno = 0; colno < row->nfields; ++colno) {
+		dr->fields[colno].fieldlen = row->fields[colno].len;
+		dr->fields[colno].data	   = row->fields[colno].data;
+	}
+}
+
 static int pgwire_execute_command(struct conn *conn)
 {
 	struct parse_tree     parse_tree;
+	struct cursor	      cur;
 	struct pgwire_rowdesc rowdesc;
-	struct pgwire_datarow row;
-	int i;
 
 	assert(conn->query);
 	assert(conn->state == CONN_IDLE);
@@ -406,51 +458,24 @@ static int pgwire_execute_command(struct conn *conn)
 	if (parse(conn, &parse_tree))
 		return 1;
 
-	rowdesc.numfields     = parse_tree.select_exprs.size;
-	rowdesc.fields	      = malloc(sizeof(struct pgwire_fielddesc) * rowdesc.numfields);
-	for (i = 0; i < rowdesc.numfields; ++i) {
-		struct select_expr *expr = (struct select_expr *)parse_tree.select_exprs.data[i];
-		if (expr->as.str != NULL) {
-			rowdesc.fields[i].col = malloc(expr->as.len + 1);
-			memcpy((char*)rowdesc.fields[i].col, expr->as.str, expr->as.len);
-			((char*)rowdesc.fields[i].col)[expr->as.len] = '\0';
-		} else {
-			rowdesc.fields[i].col = malloc(sizeof("?col 123?") + 1);
-			snprintf((char*)rowdesc.fields[i].col, sizeof("?col 123?"), "?col %d?", i);
-		}
-		rowdesc.fields[i].tableoid = 0;
-		rowdesc.fields[i].colno	   = 0;
-		rowdesc.fields[i].typeoid  = expr->dtype == DTYPE_INT ? 0 : 18 /*char*/;
-		rowdesc.fields[i].typelen  = 20;
-		rowdesc.fields[i].typmod   = 0;
-		rowdesc.fields[i].format   = 0;
-	}
+	if (sql_select(conn, &parse_tree, &cur))
+		return 1;
+
+	make_row_desc(conn, &parse_tree, &rowdesc);
 	if (pgwire_send_metadata(conn, &rowdesc))
 		return 1;
-	for (i = 0; i < rowdesc.numfields; ++i) {
-		free((char *)rowdesc.fields[i].col);
-	}
-	free(rowdesc.fields);
 
-	row.numfields = rowdesc.numfields;
-	row.fields    = malloc(sizeof(struct pgwire_datarow_field) * rowdesc.numfields);
-	for (i = 0; i < rowdesc.numfields; ++i) {
-		struct select_expr *expr = (struct select_expr *)parse_tree.select_exprs.data[i];
-		if (expr->dtype == DTYPE_INT) {
-			char *buf = malloc(1024);
-			snprintf(buf, 1024, "%d", expr->val_int);
-			row.fields[i].fieldlen = strlen(buf);
-			row.fields[i].data = buf;
-		} else {
-			row.fields[i].fieldlen = expr->val_str.len;
-			row.fields[i].data = strdup(expr->val_str.str);
-		}
+	for (;;) {
+		struct row	      row;
+		struct pgwire_datarow pg_row;
+
+		if (cursor_next(&cur, &row))
+			break;
+
+		serialize_row(conn, &row, &pg_row);
+		if (pgwire_send_data(conn, &pg_row))
+			return 1;
 	}
-	if (pgwire_send_data(conn, &row))
-		return 1;
-	for (i = 0; i < rowdesc.numfields; ++i)
-		free(row.fields[i].data);
-	free(row.fields);
 
 	return 0;
 }
@@ -464,6 +489,8 @@ void pgwire_handle_connection(struct conn *conn)
 
 	for (;;) {
 		int rc;
+
+		mem_root_clear(&conn->mem_root);
 
 		pgwire_ready_for_query(conn);
 

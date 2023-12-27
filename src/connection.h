@@ -2,6 +2,7 @@
 #define CONNECTION_H
 
 #include "util/kvmap.h"
+#include "util/mem.h"
 
 enum conn_state {
 	/*The connection is closed*/
@@ -26,6 +27,9 @@ struct conn {
 
 	/* Map of session parameters */
 	struct kvmap parameters;
+
+	/* Root for query-scoped dynamic allocations */
+	struct mem_root mem_root;
 };
 
 int conn_init(struct conn *conn, int socket);

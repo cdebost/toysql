@@ -1,8 +1,8 @@
 CC=gcc
-CFLAGS=-g -Og -pedantic -Wall -Wpedantic -Werror -fsanitize=address
+CFLAGS=-g -Og -pedantic -Wall -Wpedantic -Werror -fsanitize=address -Isrc
 SRC=${wildcard ./src/*.c ./src/**/*.c}
 OBJ=${patsubst %.c,build/%.o,${SRC}}
-INC=-Isrc
+HEADER=${wildcard ./src/*.h ./src/**/*.h}
 UNIT_TEST_SRC=${wildcard ./test/unit/*.c}
 UNIT_TEST_OBJ=${patsubst %.c,build/%.o,${UNIT_TEST_SRC}}
 FUNC_TEST_SRC=${wildcard ./test/func/*.c}
@@ -16,7 +16,7 @@ build/bin/toysqld: ${OBJ}
 	mkdir -p build/bin
 	${CC} ${CFLAGS} ${OBJ} -o build/bin/toysqld ${LDFLAGS}
 
-build/./src/%.o: src/%.c
+build/./src/%.o: src/%.c ${HEADER}
 	mkdir -p ${dir $@}
 	${CC} ${CFLAGS} ${INC} -o $@ $< -c
 
@@ -34,7 +34,7 @@ build/bin/functest: ${OBJ} ${FUNC_TEST_OBJ} ${FUNC_TESTS} ${FUNC_RESULTS} build/
 
 build/./test/%.o: test/%.c
 	mkdir -p ${dir $@}
-	${CC} ${CFLAGS} ${INC} -o $@ $< -c
+	${CC} ${CFLAGS} -o $@ $< -c
 
 .PHONY: clean test
 

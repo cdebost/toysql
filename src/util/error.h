@@ -1,11 +1,13 @@
 #ifndef ERROR_H
 #define ERROR_H
 
+#include "univ.h"
+
 #include <stddef.h>
 
-enum errlevel { LOG, INFO, DEBUG, NOTICE, WARNING, ERROR, FATAL, PANIC };
+enum errlevel { DEBUG, LOG, INFO, NOTICE, WARNING, ERROR, FATAL, PANIC };
 
-enum errtype {
+enum errcode {
 	ER_SUCCESS,
 	ER_NO_DATA,
 	ER_PROTOCOL_VIOLATION,
@@ -20,11 +22,9 @@ struct err_srcloc {
 	const char *routine;
 };
 
-#define err_here ((struct err_srcloc){ __FILE__, __LINE__, __func__ })
-
 struct err {
 	enum errlevel severity;
-	enum errtype  type;
+	enum errcode  code;
 	/* Primary human-readable error message */
 	const char *message;
 	/* Optional secondary message */
@@ -37,6 +37,21 @@ struct err {
 	struct err_srcloc loc;
 };
 
-const char *errcode(enum errtype e);
+#define errlog(sev, ...) \
+	errpush(sev);    \
+	__VA_ARGS__;     \
+	errfinish(__FILE__, __LINE__, __func__)
+
+void errpush(enum errlevel l);
+void errcode(enum errcode c);
+void errmsg(const char *fmt, ...);
+void errdetail(const char *detail);
+void errhint(const char *hint);
+void errpos(size_t pos);
+void errfinish(const char *file, size_t line, const char *routine);
+
+const char *errcode_to_str(enum errcode c);
+
+struct err *errbuf_pop(void);
 
 #endif

@@ -8,6 +8,7 @@
 
 #include "connection.h"
 #include "pgwire.h"
+#include "util/error.h"
 
 static int create_server(struct sockaddr_un *sockname, int *sock)
 {
@@ -55,7 +56,7 @@ int main(void)
 	int		   sock;
 	struct sockaddr_un name;
 
-	fprintf(stderr, "toysqld starting as process %d\n", getpid());
+	errlog(LOG, errmsg("toysqld starting as process %d", getpid()));
 
 	name.sun_family = AF_LOCAL;
 	strcpy(name.sun_path, "./.s.PGSQL.5432");

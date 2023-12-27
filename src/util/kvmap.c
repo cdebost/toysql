@@ -39,8 +39,8 @@ static int kvmap_reserve(struct kvmap *map, size_t capacity)
 
 	if (new_keys != NULL && new_values != NULL) {
 		map->capacity = capacity;
-		map->keys   = new_keys;
-		map->values = new_values;
+		map->keys     = new_keys;
+		map->values   = new_values;
 		return 0;
 	} else {
 		return 1;

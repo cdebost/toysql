@@ -1,5 +1,5 @@
 #include "test.h"
-#include "vec.h"
+#include "util/vec.h"
 
 #include <stdio.h>
 

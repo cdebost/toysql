@@ -8,9 +8,9 @@
 #include <string.h>
 
 #include "connection.h"
-#include "error.h"
 #include "pgwire.h"
 #include "univ.h"
+#include "util/error.h"
 
 static void token_next_skip_space(struct lex *lex, struct token *token)
 {
@@ -40,16 +40,11 @@ static int parse_select_exprs(struct conn *conn, struct lex *lex,
                 struct select_expr *select_expr;
 
                 if (token.tclass != TK_NUM && token.tclass != TK_STR) {
-                        struct err error;
-                        memset(&error, 0, sizeof(error));
-                        error.severity = ERROR;
-                        error.type     = ER_FEATURE_NOT_SUPPORTED;
-                        error.message  = "Syntax error";
-                        error.detail   = "Only select literals supported";
-                        error.position = lex->pos;
-                        error.loc      = err_here;
-                        pgwire_send_error(conn, &error);
-                        return 1;
+			errlog(ERROR, errcode(ER_FEATURE_NOT_SUPPORTED),
+			       errmsg("Syntax error"),
+			       errdetail("Only select literals supported"),
+			       errpos(lex->pos));
+			return 1;
                 }
                 select_expr = malloc(sizeof(struct select_expr));
 		memset(select_expr, 0, sizeof(struct select_expr));
@@ -66,15 +61,10 @@ static int parse_select_exprs(struct conn *conn, struct lex *lex,
 		if (token.tclass == TK_KEYWORD && token.keyword == KW_AS) {
 			token_next_skip_space(lex, &token);
 			if (token.tclass != TK_IDENT) {
-				struct err error;
-				memset(&error, 0, sizeof(error));
-				error.severity = ERROR;
-				error.type     = ER_SYNTAX_ERROR;
-				error.message  = "Syntax error";
-				error.detail   = "Expected identifier";
-				error.position = lex->pos;
-				error.loc      = err_here;
-				pgwire_send_error(conn, &error);
+				errlog(ERROR, errcode(ER_SYNTAX_ERROR),
+				       errmsg("Syntax error"),
+				       errdetail("Expected identifier"),
+				       errpos(lex->pos));
 				return 1;
 			}
 			select_expr->as = token.val_str;
@@ -101,15 +91,8 @@ static int parse_select(struct conn *conn, struct lex *lex,
 
 	token_next_skip_space(lex, &token);
         if (token.tclass != TK_SEMICOLON && token.tclass != TK_EOF) {
-		struct err error;
-		memset(&error, 0, sizeof(error));
-		error.severity = ERROR;
-		error.type     = ER_SYNTAX_ERROR;
-		error.message  = "Syntax error";
-		error.detail   = "Expected end of query";
-		error.position = lex->pos;
-		error.loc      = err_here;
-		pgwire_send_error(conn, &error);
+		errlog(ERROR, errcode(ER_SYNTAX_ERROR), errmsg("Syntax error"),
+		       errdetail("Expected end of query"), errpos(lex->pos));
 		return 1;
         }
 
@@ -128,15 +111,8 @@ int parse(struct conn *conn, struct parse_tree *parse_tree)
 	lex_next_token(&lex, &token);
 
 	if (token.tclass != TK_KEYWORD) {
-		struct err error;
-		memset(&error, 0, sizeof(error));
-		error.severity = ERROR;
-		error.type     = ER_SYNTAX_ERROR;
-		error.message  = "Syntax error";
-		error.detail   = "Expected keyword";
-		error.position = lex.pos;
-		error.loc      = err_here;
-		pgwire_send_error(conn, &error);
+		errlog(ERROR, errcode(ER_SYNTAX_ERROR), errmsg("Syntax error"),
+		       errdetail("Expected keyword"), errpos(lex.pos));
 		return 1;
 	}
 
@@ -144,18 +120,11 @@ int parse(struct conn *conn, struct parse_tree *parse_tree)
 	case KW_SELECT:
 		parse_tree->com_type = SQL_SELECT;
 		return parse_select(conn, &lex, parse_tree);
-	default: {
-		struct err error;
-		memset(&error, 0, sizeof(error));
-		error.severity = ERROR;
-		error.type     = ER_FEATURE_NOT_SUPPORTED;
-		error.message  = "Syntax error";
-		error.detail   = "Only select supported";
-		error.position = lex.pos;
-		error.loc      = err_here;
-		pgwire_send_error(conn, &error);
+	default:
+		errlog(ERROR, errcode(ER_FEATURE_NOT_SUPPORTED),
+		       errmsg("Syntax error"),
+		       errdetail("Only select supported"), errpos(lex.pos));
 		return 1;
-	}
 	}
 
 	return 0;

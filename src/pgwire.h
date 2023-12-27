@@ -4,8 +4,8 @@
 #define PGWIRE_H
 
 #include "connection.h"
-#include "error.h"
 #include "univ.h"
+#include "util/error.h"
 
 struct pgwire_fielddesc {
 	/* The field name. */
@@ -56,6 +56,8 @@ struct pgwire_datarow {
 };
 
 void pgwire_handle_connection(struct conn *conn);
+
+int pgwire_flush_errors(struct conn *conn);
 
 int pgwire_send_error(struct conn *conn, struct err *err);
 

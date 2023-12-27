@@ -5,7 +5,7 @@
 
 #include "connection.h"
 #include "parser/lex.h"
-#include "vec.h"
+#include "util/vec.h"
 
 enum com_type { SQL_SELECT };
 

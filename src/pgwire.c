@@ -11,9 +11,9 @@
 #include <unistd.h>
 
 #include "connection.h"
-#include "error.h"
 #include "parser/parser.h"
-#include "util.h"
+#include "util/bytes.h"
+#include "util/error.h"
 
 enum tag {
 	TAG_AUTHENTICATION_REQUEST = 'R',
@@ -128,6 +128,22 @@ static const char *severity_str(enum errlevel l)
 	}
 }
 
+extern struct err *errbuf_pop(void);
+
+int pgwire_flush_errors(struct conn *conn)
+{
+	for (;;) {
+		struct err *e = errbuf_pop();
+		if (e == NULL)
+			break;
+		if (e->severity < INFO)
+			continue;
+		if (pgwire_send_error(conn, e))
+			return 1;
+	}
+	return 0;
+}
+
 int pgwire_send_error(struct conn *conn, struct err *err)
 {
 	struct message message;
@@ -142,7 +158,7 @@ int pgwire_send_error(struct conn *conn, struct err *err)
 	*ptr++ = 'V';
 	ptr    = ut_write_str(ptr, severity_str(err->severity));
 	*ptr++ = 'C';
-	ptr    = ut_write_str(ptr, errcode(err->type));
+	ptr    = ut_write_str(ptr, errcode_to_str(err->code));
 	*ptr++ = 'M';
 	ptr    = ut_write_str(ptr, err->message);
 	if (err->detail) {
@@ -175,9 +191,6 @@ int pgwire_send_error(struct conn *conn, struct err *err)
 	}
 	*ptr++ = '\0';
 
-	fprintf(stderr, "[%s] %s (%s:%lu)\n", severity_str(err->severity),
-		err->message, err->loc.file, err->loc.line);
-
 	message.len	= (ptr - buffer) + sizeof(message.len);
 	message.payload = malloc(ptr - buffer);
 	memcpy(message.payload, buffer, ptr - buffer);
@@ -200,12 +213,8 @@ static int read_startup_message(struct conn	       *conn,
 	if ((ptr = ut_read_4(buf, (u32 *)&message->protocol_version)) == NULL)
 		goto err;
 	if (message->protocol_version.major != 3) {
-		struct err err;
-		memset(&err, 0, sizeof(err));
-		err.severity = FATAL;
-		err.type     = ER_PROTOCOL_VIOLATION;
-		err.message  = "Server only supports protocol version 3";
-		pgwire_send_error(conn, &err);
+		errlog(FATAL, errcode(ER_PROTOCOL_VIOLATION),
+		       errmsg("Server only support protocol version 3"));
 		goto err;
 	}
 
@@ -454,13 +463,20 @@ void pgwire_handle_connection(struct conn *conn)
 	assert(conn->state == CONN_IDLE);
 
 	for (;;) {
+		int rc;
+
 		pgwire_ready_for_query(conn);
 
 		if (pgwire_read_query(conn))
 			break;
-		printf("query: %s\n", conn->query);
+		errlog(DEBUG, errmsg("query: %s", conn->query));
 
-		if (pgwire_execute_command(conn))
+		rc = pgwire_execute_command(conn);
+
+		if (pgwire_flush_errors(conn))
+			break;
+
+		if (rc)
 			continue;
 
 		if (pgwire_complete_command(conn))

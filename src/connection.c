@@ -1,5 +1,4 @@
 #include "connection.h"
-#include "kvmap.h"
 
 int conn_init(struct conn *conn, int socket)
 {

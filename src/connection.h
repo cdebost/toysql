@@ -1,7 +1,7 @@
 #ifndef CONNECTION_H
 #define CONNECTION_H
 
-#include "kvmap.h"
+#include "util/kvmap.h"
 
 enum conn_state {
 	/*The connection is closed*/

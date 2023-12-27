@@ -78,4 +78,5 @@ static void test_quoted_ident()
 	EXPECT_TRUE(strncmp(token.val_str.str, "AS", sizeof("AS")));
 }
 
-TEST_SUITE(lex, TEST(test_empty), TEST(test_int), TEST(test_str), TEST(test_keywords), TEST(test_quoted_ident));
+TEST_SUITE(lex, TEST(test_empty), TEST(test_int), TEST(test_str),
+	   TEST(test_keywords), TEST(test_quoted_ident));

@@ -24,6 +24,10 @@ static int create_server(struct sockaddr_un *sockname, int *sock)
 		perror("setsockopt");
 		return 1;
 	}
+	if (setsockopt(*sock, SOL_SOCKET, SO_NOSIGPIPE, &opt, sizeof(opt))) {
+		perror("setsockopt");
+		return 1;
+	}
 	if (bind(*sock, (struct sockaddr *)sockname, name_len) < 0) {
 		perror("bind failed");
 		return 1;
@@ -32,14 +36,17 @@ static int create_server(struct sockaddr_un *sockname, int *sock)
 		perror("listen");
 		return 1;
 	}
-	if ((new_sock = accept(*sock, (struct sockaddr *)sockname, &name_len)) <
-	    0) {
-		perror("accept");
-		return 1;
+	for (;;) {
+		if ((new_sock = accept(*sock, (struct sockaddr *)sockname,
+				       &name_len)) < 0) {
+			fprintf(stderr, "accept fail\n");
+			perror("accept");
+			return 1;
+		}
+		conn_init(&conn, new_sock);
+		pgwire_handle_connection(&conn);
+		close(new_sock);
 	}
-	conn_init(&conn, new_sock);
-	pgwire_handle_connection(&conn);
-	close(new_sock);
 	return 0;
 }
 
@@ -47,6 +54,8 @@ int main(void)
 {
 	int		   sock;
 	struct sockaddr_un name;
+
+	fprintf(stderr, "toysqld starting as process %d\n", getpid());
 
 	name.sun_family = AF_LOCAL;
 	strcpy(name.sun_path, "./.s.PGSQL.5432");

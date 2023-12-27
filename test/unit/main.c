@@ -35,6 +35,7 @@ static void run_test(const char *suite, struct _test *test)
 
 int main(void)
 {
+	RUN_TEST_SUITE(heap);
 	RUN_TEST_SUITE(kvmap);
 	RUN_TEST_SUITE(lex);
 	RUN_TEST_SUITE(mem);

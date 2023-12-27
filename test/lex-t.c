@@ -45,4 +45,37 @@ static void test_str()
 	EXPECT_EQ(token.tclass, TK_INVALID);
 }
 
-TEST_SUITE(lex, TEST(test_empty), TEST(test_int), TEST(test_str));
+static void test_keywords()
+{
+	struct lex   lex;
+	struct token token;
+
+	lex_init(&lex, "AS");
+	lex_next_token(&lex, &token);
+	EXPECT_EQ(token.tclass, TK_KEYWORD);
+	EXPECT_EQ(token.keyword, KW_AS);
+
+	lex_init(&lex, "aS");
+	lex_next_token(&lex, &token);
+	EXPECT_EQ(token.tclass, TK_KEYWORD);
+	EXPECT_EQ(token.keyword, KW_AS);
+}
+
+static void test_quoted_ident()
+{
+	struct lex   lex;
+	struct token token;
+
+	lex_init(&lex, "AS \"AS\"");
+	lex_next_token(&lex, &token);
+	EXPECT_EQ(token.tclass, TK_KEYWORD);
+	EXPECT_EQ(token.keyword, KW_AS);
+
+	lex_next_token(&lex, &token);
+
+	lex_next_token(&lex, &token);
+	EXPECT_EQ(token.tclass, TK_IDENT);
+	EXPECT_TRUE(strncmp(token.val_str.str, "AS", sizeof("AS")));
+}
+
+TEST_SUITE(lex, TEST(test_empty), TEST(test_int), TEST(test_str), TEST(test_keywords), TEST(test_quoted_ident));

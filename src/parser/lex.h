@@ -14,6 +14,9 @@ enum token_class {
 	/* A single-quoted string constant like 'abc' */
 	TK_STR,
 
+	/* A reserved SQL word */
+	TK_KEYWORD,
+
 	/* A non-keyword identifier */
 	TK_IDENT,
 
@@ -25,6 +28,12 @@ enum token_class {
 
 	TK_PLUS,
 	TK_MINUS,
+	TK_STAR,
+};
+
+enum lex_keyword {
+	KW_AS,
+	KW_SELECT,
 };
 
 struct lex_str {
@@ -37,11 +46,13 @@ struct token {
 	union {
 		struct lex_str val_str;
 		u64	       val_int;
+		enum lex_keyword keyword;
 	};
 };
 
 struct lex {
 	char const *str;
+	i64 pos;
 };
 
 void lex_init(struct lex *lex, const char *str);

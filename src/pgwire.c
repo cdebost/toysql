@@ -1,7 +1,5 @@
 #include "pgwire.h"
 
-#include "connection.h"
-#include "error.h"
 #include <assert.h>
 #include <ctype.h>
 #include <stddef.h>
@@ -12,6 +10,9 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include "connection.h"
+#include "error.h"
+#include "parser/parser.h"
 #include "util.h"
 
 enum tag {
@@ -172,6 +173,7 @@ int pgwire_send_error(struct conn *conn, struct err *err)
 		*ptr++ = 'R';
 		ptr    = ut_write_str(ptr, err->loc.routine);
 	}
+	*ptr++ = '\0';
 
 	fprintf(stderr, "[%s] %s (%s:%lu)\n", severity_str(err->severity),
 		err->message, err->loc.file, err->loc.line);
@@ -369,7 +371,7 @@ int pgwire_send_data(struct conn *conn, struct pgwire_datarow *row)
 	return write_message(conn, &message);
 }
 
-int pgwire_complete_command(struct conn *conn)
+static int pgwire_complete_command(struct conn *conn)
 {
 	struct message message;
 
@@ -380,6 +382,70 @@ int pgwire_complete_command(struct conn *conn)
 	return write_message(conn, &message);
 }
 
+static int pgwire_execute_command(struct conn *conn)
+{
+	struct parse_tree     parse_tree;
+	struct pgwire_rowdesc rowdesc;
+	struct pgwire_datarow row;
+	int i;
+
+	assert(conn->query);
+	assert(conn->state == CONN_IDLE);
+
+	conn->state = CONN_RUN;
+
+	if (parse(conn, &parse_tree))
+		return 1;
+
+	rowdesc.numfields     = parse_tree.select_exprs.size;
+	rowdesc.fields	      = malloc(sizeof(struct pgwire_fielddesc) * rowdesc.numfields);
+	for (i = 0; i < rowdesc.numfields; ++i) {
+		struct select_expr *expr = (struct select_expr *)parse_tree.select_exprs.data[i];
+		if (expr->as.str != NULL) {
+			rowdesc.fields[i].col = malloc(expr->as.len + 1);
+			memcpy((char*)rowdesc.fields[i].col, expr->as.str, expr->as.len);
+			((char*)rowdesc.fields[i].col)[expr->as.len] = '\0';
+		} else {
+			rowdesc.fields[i].col = malloc(sizeof("?col 123?") + 1);
+			snprintf((char*)rowdesc.fields[i].col, sizeof("?col 123?"), "?col %d?", i);
+		}
+		rowdesc.fields[i].tableoid = 0;
+		rowdesc.fields[i].colno	   = 0;
+		rowdesc.fields[i].typeoid  = expr->dtype == DTYPE_INT ? 0 : 18 /*char*/;
+		rowdesc.fields[i].typelen  = 20;
+		rowdesc.fields[i].typmod   = 0;
+		rowdesc.fields[i].format   = 0;
+	}
+	if (pgwire_send_metadata(conn, &rowdesc))
+		return 1;
+	for (i = 0; i < rowdesc.numfields; ++i) {
+		free((char *)rowdesc.fields[i].col);
+	}
+	free(rowdesc.fields);
+
+	row.numfields = rowdesc.numfields;
+	row.fields    = malloc(sizeof(struct pgwire_datarow_field) * rowdesc.numfields);
+	for (i = 0; i < rowdesc.numfields; ++i) {
+		struct select_expr *expr = (struct select_expr *)parse_tree.select_exprs.data[i];
+		if (expr->dtype == DTYPE_INT) {
+			char *buf = malloc(1024);
+			snprintf(buf, 1024, "%d", expr->val_int);
+			row.fields[i].fieldlen = strlen(buf);
+			row.fields[i].data = buf;
+		} else {
+			row.fields[i].fieldlen = expr->val_str.len;
+			row.fields[i].data = strdup(expr->val_str.str);
+		}
+	}
+	if (pgwire_send_data(conn, &row))
+		return 1;
+	for (i = 0; i < rowdesc.numfields; ++i)
+		free(row.fields[i].data);
+	free(row.fields);
+
+	return 0;
+}
+
 void pgwire_handle_connection(struct conn *conn)
 {
 	pgwire_startup(conn);
@@ -388,39 +454,14 @@ void pgwire_handle_connection(struct conn *conn)
 	assert(conn->state == CONN_IDLE);
 
 	for (;;) {
-		struct pgwire_rowdesc rowdesc;
-		struct pgwire_datarow row;
-
 		pgwire_ready_for_query(conn);
 
 		if (pgwire_read_query(conn))
 			break;
 		printf("query: %s\n", conn->query);
 
-		conn->state = CONN_RUN;
-
-		rowdesc.numfields = 1;
-		rowdesc.fields	  = malloc(sizeof(struct pgwire_fielddesc) * 1);
-		rowdesc.fields[0].col	   = "id";
-		rowdesc.fields[0].tableoid = 0;
-		rowdesc.fields[0].colno	   = 0;
-		rowdesc.fields[0].typeoid  = 18; /*char*/
-		rowdesc.fields[0].typelen  = 20;
-		rowdesc.fields[0].typmod   = 0;
-		rowdesc.fields[0].format   = 0;
-		if (pgwire_send_metadata(conn, &rowdesc))
-			break;
-		free(rowdesc.fields);
-
-		row.numfields = 1;
-		row.fields    = malloc(sizeof(struct pgwire_datarow_field) * 1);
-		row.fields[0].fieldlen = 5;
-		row.fields[0].data     = malloc(5);
-		memcpy(row.fields[0].data, "Dummy", 5);
-		if (pgwire_send_data(conn, &row))
-			break;
-		free(row.fields[0].data);
-		free(row.fields);
+		if (pgwire_execute_command(conn))
+			continue;
 
 		if (pgwire_complete_command(conn))
 			break;

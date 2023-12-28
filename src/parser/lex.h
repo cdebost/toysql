@@ -14,9 +14,6 @@ enum token_class {
 	/* A single-quoted string constant like 'abc' */
 	TK_STR,
 
-	/* A reserved SQL word */
-	TK_KEYWORD,
-
 	/* A non-keyword identifier */
 	TK_IDENT,
 
@@ -29,11 +26,10 @@ enum token_class {
 	TK_PLUS,
 	TK_MINUS,
 	TK_STAR,
-};
 
-enum lex_keyword {
-	KW_AS,
-	KW_SELECT,
+	TK_AS,
+	TK_FROM,
+	TK_SELECT,
 };
 
 struct lex_str {
@@ -41,23 +37,25 @@ struct lex_str {
 	size_t	    len;
 };
 
-struct token {
+struct lex_token {
 	enum token_class tclass;
+	size_t		 begin;
+	size_t		 end;
 	union {
 		struct lex_str val_str;
 		u64	       val_int;
-		enum lex_keyword keyword;
 	};
 };
 
 struct lex {
 	char const *str;
 	i64 pos;
+	struct lex_token token;
 };
 
 void lex_init(struct lex *lex, const char *str);
 
 /* Read the next token and advance the lexer past that token */
-void lex_next_token(struct lex *lex, struct token *token);
+void lex_next_token(struct lex *lex);
 
 #endif // LEX_H

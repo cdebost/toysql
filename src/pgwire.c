@@ -413,6 +413,13 @@ static void make_row_desc(struct conn *conn, struct parse_tree *parse_tree,
 			       expr->as.len);
 			((char *)rowdesc->fields[colno].col)[expr->as.len] =
 				'\0';
+		} else if (expr->type == SELECT_EXPR_FIELD) {
+			rowdesc->fields[colno].col = mem_alloc(
+				&conn->mem_root, expr->fieldname.len + 1);
+			memcpy((char *)rowdesc->fields[colno].col,
+			       expr->fieldname.str, expr->fieldname.len);
+			((char *)rowdesc->fields[colno]
+				 .col)[expr->fieldname.len] = '\0';
 		} else {
 			rowdesc->fields[colno].col = mem_alloc(
 				&conn->mem_root, sizeof("?col 123?") + 1);

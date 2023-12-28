@@ -108,6 +108,16 @@ static void stop_server(void)
 	kill(serverpid, SIGTERM);
 }
 
+static void print_file(const char *path)
+{
+	char  c;
+	FILE *f = fopen(path, "r");
+
+	while ((c = fgetc(f)) != EOF)
+		putc(c, stdout);
+	fclose(f);
+}
+
 static int check_server_alive(void)
 {
 	int status;
@@ -118,6 +128,8 @@ static int check_server_alive(void)
 		if (WIFSIGNALED(status))
 			printf("server terminated with signal %d\n",
 			       WTERMSIG(status));
+		print_file(errlogpath);
+		truncate(errlogpath, 0);
 		return 0;
 	}
 	return 1;
@@ -182,16 +194,6 @@ static void exec_sql_client(const char *infile, const char *outfile)
 	getcwd(cwd, sizeof(cwd));
 	execlp("psql", "psql", "-h", cwd, "-a", (char *)NULL);
 	perror("psql");
-}
-
-static void print_file(const char *path)
-{
-	char  c;
-	FILE *f = fopen(path, "r");
-
-	while ((c = fgetc(f)) != EOF)
-		putc(c, stdout);
-	fclose(f);
 }
 
 static int diff(const char *f1, const char *f2, const char *fout)

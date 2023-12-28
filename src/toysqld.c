@@ -51,10 +51,14 @@ static int create_server(struct sockaddr_un *sockname, int *sock)
 	return 0;
 }
 
+extern void init_dummy_tables(void);
+
 int main(void)
 {
 	int		   sock;
 	struct sockaddr_un name;
+
+	init_dummy_tables();
 
 	errlog(LOG, errmsg("toysqld starting as process %d", getpid()));
 

@@ -1,0 +1,48 @@
+-- selecting no columns
+select 1 from foo;
+ ?col 0? 
+---------
+ 1
+ 1
+ 1
+(3 rows)
+
+-- simple select
+select a, b from foo;
+   a   |  b  
+-------+-----
+ one   | x
+ two   | xx
+ three | xxx
+(3 rows)
+
+-- nonexistent columns
+select a, c from foo;
+   a   | c 
+-------+---
+ one   | 
+ two   | 
+ three | 
+(3 rows)
+
+-- mixing columns and literals
+select 1, a, 2, b from foo;
+ ?col 0? |   a   | ?col 2? |  b  
+---------+-------+---------+-----
+ 1       | one   | 2       | x
+ 1       | two   | 2       | xx
+ 1       | three | 2       | xxx
+(3 rows)
+
+-- renaming columns
+select a as aa, b as bb from foo;
+  aa   | bb  
+-------+-----
+ one   | x
+ two   | xx
+ three | xxx
+(3 rows)
+
+-- nonexistent tables
+select 1 from bar;
+ERROR:  Unknown table bar

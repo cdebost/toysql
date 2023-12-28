@@ -5,10 +5,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Must match order of keywords in token_class in lex.h */
+static const char *keyword_names[] = { "AS", "FROM", "SELECT" };
+
 static size_t scan(const char *str, enum token_class *type)
 {
-	char buf[1024];
 	u16  i;
+	u16  k;
 
 	if (str == NULL || str[0] == '\0') {
 		*type = TK_EOF;
@@ -93,28 +96,24 @@ static size_t scan(const char *str, enum token_class *type)
 		return 1;
 	}
 
-	// TODO: growable buffer
-	memset(buf, 0, 1024);
-	buf[0] = toupper(str[0]);
 	for (i = 1; isalnum(str[i]); ++i)
-		buf[i] = toupper(str[i]);
-	buf[i] = '\0';
+		;
+	*type = TK_IDENT;
 
-	if (strcmp(buf, "AS") == 0)
-		*type = TK_KEYWORD;
-	else if (strcmp(buf, "SELECT") == 0)
-		*type = TK_KEYWORD;
-	else
-		*type = TK_IDENT;
+	for (k = 0; k < sizeof(keyword_names) / sizeof(keyword_names[0]); ++k) {
+		if (strncasecmp(str, keyword_names[k],
+				strlen(keyword_names[k])) == 0) {
+			*type = TK_AS + k;
+			break;
+		}
+	}
 
 	return i;
-
 }
 
-static void evaluate(char const *str, size_t len, struct token *token)
+static void evaluate(char const *str, size_t len, struct lex_token *token)
 {
 	char *buf;
-	int i;
 
 	switch (token->tclass) {
 	case TK_NUM:
@@ -132,17 +131,6 @@ static void evaluate(char const *str, size_t len, struct token *token)
 		token->val_str.str = str;
 		token->val_str.len = len;
 		break;
-	case TK_KEYWORD:
-		buf = malloc(len + 1);
-		for (i = 0; i < len; ++i)
-			buf[i] = toupper(str[i]);
-		buf[len] = '\0';
-		if (strcmp(buf, "AS") == 0)
-			token->keyword = KW_AS;
-		else if (strcmp(buf, "SELECT") == 0)
-			token->keyword = KW_SELECT;
-		else
-			assert(0);
 	default:
 		break;
 	}
@@ -152,16 +140,17 @@ void lex_init(struct lex *lex, const char *str)
 {
 	lex->str = str;
 	lex->pos = 0;
+	memset(&lex->token, 0, sizeof(lex->token));
 }
 
-void lex_next_token(struct lex *lex, struct token *token)
+void lex_next_token(struct lex *lex)
 {
-	enum token_class tclass;
 	size_t		 tsz;
 
-	tsz	      = scan(lex->str, &tclass);
-	token->tclass = tclass;
-	evaluate(lex->str, tsz, token);
+	tsz = scan(lex->str, &lex->token.tclass);
+	evaluate(lex->str, tsz, &lex->token);
+	lex->token.begin = lex->pos;
+	lex->token.end	 = lex->pos + tsz;
 	lex->str += tsz;
 	lex->pos += tsz;
 }

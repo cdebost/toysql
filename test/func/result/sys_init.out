@@ -1,0 +1,22 @@
+select oid, name from tables;
+ oid |  name   
+-----+---------
+   1 | tables
+   2 | columns
+   3 | foo
+(3 rows)
+
+select oid, tableoid, name, typeoid, typemod from columns;
+ oid | tableoid |   name   | typeoid | typemod 
+-----+----------+----------+---------+---------
+   1 |        1 | oid      |      23 |      -1
+   2 |        1 | name     |      18 |      64
+   3 |        2 | oid      |      23 |      -1
+   4 |        2 | tableoid |      23 |      -1
+   5 |        2 | name     |      18 |      64
+   6 |        2 | typeoid  |      23 |      -1
+   7 |        2 | typemod  |      23 |      -1
+   8 |        3 | a        |      18 |       5
+   9 |        3 | b        |      23 |      -1
+(9 rows)
+

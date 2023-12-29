@@ -2,6 +2,7 @@
 #define SELECT_H
 
 #include "connection.h"
+#include "executor/tablescan.h"
 #include "parser/parser.h"
 #include "storage/heap.h"
 #include "table.h"
@@ -14,12 +15,6 @@ struct row_field {
 struct row {
 	u16		  nfields;
 	struct row_field *fields;
-};
-
-struct tablescan_iter {
-	struct table *table;
-	struct heap_page *heap_page;
-	u16	      slotno;
 };
 
 struct cursor {

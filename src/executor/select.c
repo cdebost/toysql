@@ -1,54 +1,16 @@
-#include "dtype.h"
-#include "util/bytes.h"
-#include "util/debug.h"
+#include "executor/select.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "executor/select.h"
+#include "dtype.h"
 #include "parser/parser.h"
-#include "storage/heap.h"
 #include "sys.h"
 #include "univ.h"
+#include "util/bytes.h"
 #include "util/error.h"
 #include "util/mem.h"
-
-static struct table table_foo;
-static struct heap_page *table_foo_heap_page;
-static struct heap_page *empty_heap_page;
-
-void init_dummy_tables(void)
-{
-	byte		  tup[1024];
-
-	empty_heap_page = malloc(PAGE_SIZE);
-	heap_page_init(empty_heap_page);
-
-	table_init(&table_foo, "foo", /*ncols=*/2);
-	table_foo.cols[0].name = "a";
-	table_foo.cols[0].typeoid = DTYPE_CHAR;
-	table_foo.cols[0].typemod = 5;
-	table_foo.cols[1].name = "b";
-	table_foo.cols[1].typeoid = DTYPE_INT4;
-	table_foo.cols[1].typemod = -1;
-
-	sys_add_table(&table_foo);
-
-	table_foo_heap_page = malloc(PAGE_SIZE);
-	heap_page_init(table_foo_heap_page);
-	memset(tup, 0, sizeof(tup));
-	strcpy(tup, "one");
-	*(tup + 5) = 1;
-	heap_page_add_tuple(table_foo_heap_page, tup, 9);
-	memset(tup, 0, sizeof(tup));
-	strcpy(tup, "two");
-	*(tup + 5) = 2;
-	heap_page_add_tuple(table_foo_heap_page, tup, 9);
-	memset(tup, 0, sizeof(tup));
-	strcpy(tup, "three");
-	*(tup + 5) = 3;
-	heap_page_add_tuple(table_foo_heap_page, tup, 9);
-}
 
 static int open_table(const struct lex_str *name, struct table **table)
 {
@@ -115,30 +77,13 @@ int sql_select(struct conn *conn, struct parse_tree *parse_tree,
 		}
 		cur->iter	  = mem_alloc(&conn->mem_root,
 					      sizeof(struct tablescan_iter));
-		cur->iter->table  = table;
-		if (strcmp(cur->iter->table->name, "foo") == 0)
-			cur->iter->heap_page = table_foo_heap_page;
-		else
-			cur->iter->heap_page = empty_heap_page;
-		cur->iter->slotno = 0;
+		tablescan_begin(cur->iter, table);
 	}
 
 	if (resolve(parse_tree, table))
 		return 1;
 
 	return 0;
-}
-
-static int tablescan_iter_next(struct tablescan_iter *iter, byte **tup)
-{
-	u16 tup_size;
-
-	if (iter->slotno >= heap_page_slot_count(iter->heap_page))
-		return -1;
-	tup_size =
-		heap_page_read_tuple(iter->heap_page, iter->slotno, tup);
-	iter->slotno++;
-	return tup_size;
 }
 
 static void eval_field_expr(struct table *table, byte *tup,
@@ -172,7 +117,7 @@ static void eval_literal_expr(struct mem_root	 *mem_root,
 	case DTYPE_INT4:
 	case DTYPE_INT8:
 		field->len = dtype_len(expr->typeoid, -1);
-		field->data = mem_zalloc(mem_root, sizeof(field->len));
+		field->data = mem_zalloc(mem_root, field->len);
 		*field->data = expr->val_int;
 		break;
 	case DTYPE_CHAR:
@@ -200,15 +145,12 @@ static void eval_result_column(struct cursor *cur, struct select_expr *expr,
 int cursor_next(struct cursor *cur, struct row *row)
 {
 	int colno;
-	byte *tup = NULL;
-	int   tup_size;
 
 	if (cur->eof)
 		return 1;
 
 	if (cur->iter) {
-		tup_size = tablescan_iter_next(cur->iter, &tup);
-		if (tup_size == -1) {
+		if (tablescan_next(cur->iter) == -1) {
 			cur->eof = 1;
 			return 1;
 		}
@@ -222,7 +164,7 @@ int cursor_next(struct cursor *cur, struct row *row)
 		struct select_expr *expr =
 			(struct select_expr *)
 				cur->parse_tree->select_exprs.data[colno];
-		eval_result_column(cur, expr, &row->fields[colno], tup);
+		eval_result_column(cur, expr, &row->fields[colno], cur->iter ? cur->iter->tup : NULL);
 	}
 
 	if (!cur->iter)

@@ -4,6 +4,7 @@
 #include <stdlib.h>
 
 #include "dtype.h"
+#include "executor/tablescan.h"
 #include "storage/heap.h"
 #include "table.h"
 #include "univ.h"
@@ -11,81 +12,127 @@
 #include "util/error.h"
 #include "util/vec.h"
 
-static struct heap_page *tables	 = NULL;
-static struct heap_page *columns = NULL;
+#define NAME_LENGTH 64
+
+static struct table tables;
+static struct table columns;
+
+struct heap_page *tables_heap	 = NULL;
+struct heap_page *columns_heap = NULL;
 
 static u32 table_oid_seq  = 1;
 static u32 column_oid_seq = 1;
 
+struct table table_foo;
+struct heap_page *table_foo_heap;
+struct heap_page *empty_heap;
+
+struct tables_tup {
+	u32 oid;
+	char name[NAME_LENGTH];
+} __attribute__((packed));
+
+struct columns_tup {
+	u32 oid;
+	u32 tableoid;
+	char name[NAME_LENGTH];
+	u32 typeoid;
+	u32 typemod;
+} __attribute__((packed));
+
 void sys_bootstrap(void)
 {
-	struct table tables_table;
-	struct table columns_table;
+	tables_heap = malloc(PAGE_SIZE);
+	heap_page_init(tables_heap);
 
-	tables = malloc(PAGE_SIZE);
-	heap_page_init(tables);
-
-	columns = malloc(PAGE_SIZE);
-	heap_page_init(columns);
+	columns_heap = malloc(PAGE_SIZE);
+	heap_page_init(columns_heap);
 
 	/* Create the tables table */
-	table_init(&tables_table, "tables", 2);
-	tables_table.cols[0].name    = "oid";
-	tables_table.cols[0].typeoid = DTYPE_INT4;
-	tables_table.cols[0].typemod = -1;
-	tables_table.cols[1].name    = "name";
-	tables_table.cols[1].typeoid = DTYPE_CHAR;
-	tables_table.cols[1].typemod = 64;
-
-	/* Create the columns table */
-	table_init(&columns_table, "columns", 5);
-	columns_table.cols[0].name    = "oid";
-	columns_table.cols[0].typeoid = DTYPE_INT4;
-	columns_table.cols[0].typemod = -1;
-	columns_table.cols[1].name    = "tableoid";
-	columns_table.cols[1].typeoid = DTYPE_INT4;
-	columns_table.cols[1].typemod = -1;
-	columns_table.cols[2].name    = "name";
-	columns_table.cols[2].typeoid = DTYPE_CHAR;
-	columns_table.cols[2].typemod = 64;
-	columns_table.cols[3].name    = "typeoid";
-	columns_table.cols[3].typeoid = DTYPE_INT4;
-	columns_table.cols[3].typemod = -1;
-	columns_table.cols[4].name    = "typemod";
-	columns_table.cols[4].typeoid = DTYPE_INT4;
-	columns_table.cols[4].typemod = -1;
-
-	if (sys_add_table(&tables_table))
+	table_init(&tables, "tables", 2);
+	tables.cols[0].name    = "oid";
+	tables.cols[0].typeoid = DTYPE_INT4;
+	tables.cols[0].typemod = -1;
+	tables.cols[1].name    = "name";
+	tables.cols[1].typeoid = DTYPE_CHAR;
+	tables.cols[1].typemod = NAME_LENGTH;
+	if (sys_add_table(&tables))
 		errlog(PANIC, errmsg("Sys bootstrap failed"),
 		       errdetail("Could not add tables table"));
-	if (sys_add_table(&columns_table))
+
+	/* Create the columns table */
+	table_init(&columns, "columns", 5);
+	columns.cols[0].name    = "oid";
+	columns.cols[0].typeoid = DTYPE_INT4;
+	columns.cols[0].typemod = -1;
+	columns.cols[1].name    = "tableoid";
+	columns.cols[1].typeoid = DTYPE_INT4;
+	columns.cols[1].typemod = -1;
+	columns.cols[2].name    = "name";
+	columns.cols[2].typeoid = DTYPE_CHAR;
+	columns.cols[2].typemod = NAME_LENGTH;
+	columns.cols[3].name    = "typeoid";
+	columns.cols[3].typeoid = DTYPE_INT4;
+	columns.cols[3].typemod = -1;
+	columns.cols[4].name    = "typemod";
+	columns.cols[4].typeoid = DTYPE_INT4;
+	columns.cols[4].typemod = -1;
+	if (sys_add_table(&columns))
 		errlog(PANIC, errmsg("Sys bootstrap failed"),
 		       errdetail("Could not add columns table"));
 }
 
+void init_dummy_tables(void)
+{
+	byte		  tup[1024];
+
+	table_init(&table_foo, "foo", /*ncols=*/2);
+	table_foo.cols[0].name = "a";
+	table_foo.cols[0].typeoid = DTYPE_CHAR;
+	table_foo.cols[0].typemod = 5;
+	table_foo.cols[1].name = "b";
+	table_foo.cols[1].typeoid = DTYPE_INT4;
+	table_foo.cols[1].typemod = -1;
+	sys_add_table(&table_foo);
+
+	table_foo_heap = malloc(PAGE_SIZE);
+	heap_page_init(table_foo_heap);
+	memset(tup, 0, sizeof(tup));
+	strcpy(tup, "one");
+	*(tup + 5) = 1;
+	heap_page_add_tuple(table_foo_heap, tup, 9);
+	memset(tup, 0, sizeof(tup));
+	strcpy(tup, "two");
+	*(tup + 5) = 2;
+	heap_page_add_tuple(table_foo_heap, tup, 9);
+	memset(tup, 0, sizeof(tup));
+	strcpy(tup, "three");
+	*(tup + 5) = 3;
+	heap_page_add_tuple(table_foo_heap, tup, 9);
+}
+
 int sys_add_table(struct table *tab)
 {
-	byte  tup[1024];
-	byte *ptr;
+	struct tables_tup ttup;
+	struct columns_tup ctup;
 	u16   colno;
 
 	tab->oid = table_oid_seq++;
 
-	memset(tup, 0, sizeof(tup));
-	ptr = tup;
-	ptr = ut_write_4(ptr, tab->oid);
-	ptr = ut_write_str(ptr, tab->name);
-	heap_page_add_tuple(tables, tup, ptr - tup);
+	memset(&ttup, 0, sizeof(ttup));
+	ttup.oid = tab->oid;
+	strncpy(ttup.name, tab->name, NAME_LENGTH);
+	heap_page_add_tuple(tables_heap, (byte *)&ttup, sizeof(ttup));
 
 	for (colno = 0; colno < tab->ncols; ++colno) {
-		memset(tup, 0, sizeof(tup));
-		ptr = tup;
-		ptr = ut_write_4(ptr, column_oid_seq++);
-		ptr = ut_write_4(ptr, tab->oid);
-		ptr = ut_write_str(ptr, tab->cols[colno].name);
-		ptr = ut_write_4(ptr, tab->cols[colno].typeoid);
-		ptr = ut_write_4(ptr, tab->cols[colno].typemod);
-		heap_page_add_tuple(columns, tup, ptr - tup);
+		struct column *col = &tab->cols[colno];
+		memset(&ctup, 0, sizeof(ctup));
+		ctup.oid = column_oid_seq++;
+		ctup.tableoid = tab->oid;
+		strncpy(ctup.name, col->name, NAME_LENGTH);
+		ctup.typeoid = col->typeoid;
+		ctup.typemod = col->typemod;
+		heap_page_add_tuple(columns_heap, (byte *)&ctup, sizeof(ctup));
 	}
 
 	return 0;
@@ -94,49 +141,45 @@ int sys_add_table(struct table *tab)
 struct table *sys_load_table_by_name(const char *tab_name)
 {
 	struct table *table = NULL;
+	struct tablescan_iter iter;
+	struct tables_tup *ttup;
+	struct columns_tup *ctup;
 	struct vec    cols;
-	u16	      slotno;
-	u16	      nslots;
-	byte	     *tup;
 	u16	      colno;
 
-	nslots = heap_page_slot_count(tables);
-	for (slotno = 0; slotno < nslots; ++slotno) {
-		u32  oid;
-		char name[1024];
-
-		heap_page_read_tuple(tables, slotno, &tup);
-		tup = ut_read_4(tup, &oid);
-		tup = (char *)ut_read_str(tup, name);
-		if (strcmp(name, tab_name) != 0)
+	tablescan_begin(&iter, &tables);
+	while (tablescan_next(&iter) != -1) {
+		assert(iter.tupsize == sizeof(struct tables_tup));
+		ttup = (struct tables_tup *)iter.tup;
+		if (strcmp(ttup->name, tab_name) != 0)
 			continue;
 		table	    = malloc(sizeof(struct table));
-		table->oid  = oid;
-		table->name = strdup(name);
+		table->oid  = ttup->oid;
+		table->name = strdup(ttup->name);
 		break;
 	}
+	tablescan_end(&iter);
+
 	if (table == NULL)
 		return NULL;
 
 	vec_init(&cols, 1);
-	nslots = heap_page_slot_count(columns);
-	for (slotno = 0; slotno < nslots; ++slotno) {
+	tablescan_begin(&iter, &columns);
+	while (tablescan_next(&iter) != -1) {
 		struct column *col;
-		u32	       oid;
-		u32	       tableoid;
 
-		heap_page_read_tuple(columns, slotno, &tup);
-		tup = ut_read_4(tup, &oid);
-		tup = ut_read_4(tup, &tableoid);
-		if (tableoid != table->oid)
+		assert(iter.tupsize == sizeof(struct columns_tup));
+		ctup = (struct columns_tup *)iter.tup;
+		if (ctup->tableoid != table->oid)
 			continue;
 		col	  = malloc(sizeof(struct column));
-		col->name = malloc(64);
-		tup	  = (char *)ut_read_str(tup, (char *)col->name);
-		tup	  = (char *)ut_read_4(tup, &col->typeoid);
-		tup	  = (char *)ut_read_4(tup, (u32 *)&col->typemod);
+		col->name = malloc(NAME_LENGTH);
+		strncpy((char *)col->name, ctup->name, NAME_LENGTH);
+		col->typeoid = ctup->typeoid;
+		col->typemod = ctup->typemod;
 		vec_push(&cols, col);
 	}
+	tablescan_end(&iter);
 	assert(cols.size > 0);
 
 	table->ncols = cols.size;

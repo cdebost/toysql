@@ -4,6 +4,7 @@
 #include <assert.h>
 
 #include "connection.h"
+#include "dtype.h"
 #include "parser/lex.h"
 #include "util/vec.h"
 
@@ -15,15 +16,18 @@ enum select_expr_type {
 	SELECT_EXPR_FIELD
 };
 
-enum dtype { DTYPE_UNKNOWN, DTYPE_INT, DTYPE_STR };
-
 struct select_expr {
         enum select_expr_type type;
-        enum dtype dtype;
+        u32 typeoid;
+	u32 typemod;
         union {
                 int val_int;
                 struct lex_str val_str;
-		struct lex_str fieldname;
+		struct {
+			struct lex_str fieldname;
+			u32 tableoid;
+			u32 colno;
+		};
 	};
 	struct lex_str as;
 };

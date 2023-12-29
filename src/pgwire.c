@@ -426,17 +426,34 @@ static void make_row_desc(struct conn *conn, struct parse_tree *parse_tree,
 			snprintf((char *)rowdesc->fields[colno].col,
 				 sizeof("?col 123?"), "?col %d?", colno);
 		}
-		rowdesc->fields[colno].tableoid = 0;
-		rowdesc->fields[colno].colno	= 0;
-		rowdesc->fields[colno].typeoid =
-			expr->dtype == DTYPE_INT ? 0 : 18 /*char*/;
-		rowdesc->fields[colno].typelen = 20;
-		rowdesc->fields[colno].typmod  = 0;
+		rowdesc->fields[colno].tableoid = expr->tableoid;
+		rowdesc->fields[colno].colno	= expr->colno;
+		rowdesc->fields[colno].typeoid = expr->typeoid;
+		rowdesc->fields[colno].typelen = dtype_len(expr->typeoid, -1);
+		rowdesc->fields[colno].typmod  = expr->typemod;
 		rowdesc->fields[colno].format  = 0;
 	}
 }
 
-static void serialize_row(struct conn *conn, struct row *row,
+static void to_text(struct conn *conn, u32 typeoid, i32 typemod, const byte *data, char **out)
+{
+	*out = mem_alloc(&conn->mem_root, 1024);
+	switch (typeoid) {
+	case DTYPE_INT2:
+	case DTYPE_INT4:
+	case DTYPE_INT8:
+		snprintf(*out, 1024, "%d", *(int *)data);
+		break;
+	case DTYPE_CHAR:
+		snprintf(*out, typemod + 1, "%s", (char *)data);
+		break;
+	default:
+		errlog(PANIC, errmsg("Serialization for dtype %u not implemented", typeoid));
+		break;
+	}
+}
+
+static void serialize_row(struct conn *conn, struct pgwire_rowdesc *rowdesc, struct row *row,
 			  struct pgwire_datarow *dr)
 {
 	int colno;
@@ -446,8 +463,8 @@ static void serialize_row(struct conn *conn, struct row *row,
 		mem_alloc(&conn->mem_root,
 			  sizeof(struct pgwire_datarow_field) * row->nfields);
 	for (colno = 0; colno < row->nfields; ++colno) {
-		dr->fields[colno].fieldlen = row->fields[colno].len;
-		dr->fields[colno].data	   = row->fields[colno].data;
+		to_text(conn, rowdesc->fields[colno].typeoid, rowdesc->fields[colno].typmod, row->fields[colno].data, &dr->fields[colno].data);
+		dr->fields[colno].fieldlen = strlen(dr->fields[colno].data);
 	}
 }
 
@@ -479,7 +496,7 @@ static int pgwire_execute_command(struct conn *conn)
 		if (cursor_next(&cur, &row))
 			break;
 
-		serialize_row(conn, &row, &pg_row);
+		serialize_row(conn, &rowdesc, &row, &pg_row);
 		if (pgwire_send_data(conn, &pg_row))
 			return 1;
 	}

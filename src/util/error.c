@@ -115,6 +115,8 @@ const char *errcode_to_str(enum errcode c)
 		return "0A000";
 	case ER_SYNTAX_ERROR:
 		return "42601";
+	case ER_UNDEFINED_COLUMN:
+		return "42703";
 	case ER_UNDEFINED_TABLE:
 		return "42P01";
 	case ER_INTERNAL_ERROR:

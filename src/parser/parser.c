@@ -53,12 +53,14 @@ static int parse_select_exprs(struct conn *conn, struct lex *lex,
 			break;
 		case TK_NUM:
 			select_expr->type    = SELECT_EXPR_LITERAL;
-			select_expr->dtype   = DTYPE_INT;
+			select_expr->typeoid = DTYPE_INT4;
+			select_expr->typemod = -1;
 			select_expr->val_int = lex->token.val_int;
 			break;
 		case TK_STR:
 			select_expr->type    = SELECT_EXPR_LITERAL;
-			select_expr->dtype   = DTYPE_STR;
+			select_expr->typeoid = DTYPE_CHAR;
+			select_expr->typemod = lex->token.val_str.len;
 			select_expr->val_str = lex->token.val_str;
 			break;
 		default:

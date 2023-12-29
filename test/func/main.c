@@ -129,7 +129,6 @@ static int check_server_alive(void)
 			printf("server terminated with signal %d\n",
 			       WTERMSIG(status));
 		print_file(errlogpath);
-		truncate(errlogpath, 0);
 		return 0;
 	}
 	return 1;
@@ -259,6 +258,9 @@ static int run_test(const char *testname)
 	strcat(diffpath, "/");
 	strcat(diffpath, testname);
 	strcat(diffpath, ".diff");
+
+	/* Clear server logs */
+	truncate(errlogpath, 0);
 
 	pid = fork();
 	if (pid == -1) {

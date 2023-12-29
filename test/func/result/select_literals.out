@@ -1,7 +1,7 @@
 SELECT 1, 2, 3;
  ?col 0? | ?col 1? | ?col 2? 
 ---------+---------+---------
- 1       | 2       | 3
+       1 |       2 |       3
 (1 row)
 
 SELECT 'a', 'b', 'c';
@@ -13,6 +13,6 @@ SELECT 'a', 'b', 'c';
 SELECT 1 AS first, 2 AS second, 'three' as third;
  first | second | third 
 -------+--------+-------
- 1     | 2      | three
+     1 |      2 | three
 (1 row)
 

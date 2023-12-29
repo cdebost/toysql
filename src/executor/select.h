@@ -4,6 +4,7 @@
 #include "connection.h"
 #include "parser/parser.h"
 #include "storage/heap.h"
+#include "table.h"
 
 struct row_field {
 	u32   len;
@@ -15,19 +16,9 @@ struct row {
 	struct row_field *fields;
 };
 
-struct column {
-	const char *name;
-	u16	    len;
-};
-
-struct table {
-	u16		  ncols;
-	struct column	 *cols;
-	struct heap_page *heap_page;
-};
-
 struct tablescan_iter {
 	struct table *table;
+	struct heap_page *heap_page;
 	u16	      slotno;
 };
 

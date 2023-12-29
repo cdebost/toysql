@@ -15,6 +15,7 @@ struct column {
 };
 
 struct table {
+	u32 oid;
 	/* user-defined name of the table */
 	const char *name;
 	/* number of columns */

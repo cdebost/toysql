@@ -8,16 +8,21 @@
 #include "executor/select.h"
 #include "parser/parser.h"
 #include "storage/heap.h"
+#include "sys.h"
 #include "univ.h"
 #include "util/error.h"
 #include "util/mem.h"
 
 static struct table table_foo;
 static struct heap_page *table_foo_heap_page;
+static struct heap_page *empty_heap_page;
 
 void init_dummy_tables(void)
 {
 	byte		  tup[1024];
+
+	empty_heap_page = malloc(PAGE_SIZE);
+	heap_page_init(empty_heap_page);
 
 	table_init(&table_foo, "foo", /*ncols=*/2);
 	table_foo.cols[0].name = "a";
@@ -26,6 +31,8 @@ void init_dummy_tables(void)
 	table_foo.cols[1].name = "b";
 	table_foo.cols[1].typeoid = DTYPE_INT4;
 	table_foo.cols[1].typemod = -1;
+
+	sys_add_table(&table_foo);
 
 	table_foo_heap_page = malloc(PAGE_SIZE);
 	heap_page_init(table_foo_heap_page);
@@ -45,11 +52,10 @@ void init_dummy_tables(void)
 
 static int open_table(const struct lex_str *name, struct table **table)
 {
-	if (strncmp(name->str, "foo", name->len) == 0) {
-		*table = &table_foo;
-	} else {
-		*table = NULL;
-	}
+	char buf[1024];
+	memset(buf, 0, sizeof(buf));
+	memcpy(buf, name->str, name->len);
+	*table = sys_load_table_by_name(buf);
 	return *table == NULL;
 }
 
@@ -65,8 +71,9 @@ static int resolve(struct parse_tree *parse_tree, struct table *table)
 		if (expr->type == SELECT_EXPR_FIELD) {
 			int colno;
 			for (colno = 0; colno < table->ncols; ++colno) {
-				if (strncmp(expr->fieldname.str, table->cols[colno].name,
-							strlen(table->cols[colno].name)) == 0)
+				if (strncmp(expr->fieldname.str,
+					    table->cols[colno].name,
+					    expr->fieldname.len) == 0)
 					break;
 			}
 			if (colno == table->ncols) {
@@ -109,8 +116,10 @@ int sql_select(struct conn *conn, struct parse_tree *parse_tree,
 		cur->iter	  = mem_alloc(&conn->mem_root,
 					      sizeof(struct tablescan_iter));
 		cur->iter->table  = table;
-		assert(strcmp(cur->iter->table->name, "foo") == 0);
-		cur->iter->heap_page = table_foo_heap_page;
+		if (strcmp(cur->iter->table->name, "foo") == 0)
+			cur->iter->heap_page = table_foo_heap_page;
+		else
+			cur->iter->heap_page = empty_heap_page;
 		cur->iter->slotno = 0;
 	}
 

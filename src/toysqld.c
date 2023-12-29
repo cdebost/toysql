@@ -8,6 +8,7 @@
 
 #include "connection.h"
 #include "pgwire.h"
+#include "sys.h"
 #include "util/error.h"
 
 static int create_server(struct sockaddr_un *sockname, int *sock)
@@ -57,6 +58,9 @@ int main(void)
 {
 	int		   sock;
 	struct sockaddr_un name;
+
+	sys_bootstrap();
+	sys_load_table_by_name("tables");
 
 	init_dummy_tables();
 

@@ -137,6 +137,7 @@ int parse(struct conn *conn, struct parse_tree *parse_tree)
 	if (!conn->query || conn->query[0] == '\0')
 		return 1;
 
+	memset(parse_tree, 0, sizeof(struct parse_tree));
 	lex_init(&lex, conn->query);
 	lex_next_token(&lex);
 

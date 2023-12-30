@@ -3,7 +3,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-void *mem_alloc(struct mem_root *mem_root, size_t size)
+static _Thread_local struct mem_root *mem_root;
+
+void *mem_alloc(size_t size)
 {
 	void **allocs;
 	size_t new_cap;
@@ -22,9 +24,9 @@ void *mem_alloc(struct mem_root *mem_root, size_t size)
 	return alloc;
 }
 
-void *mem_zalloc(struct mem_root *mem_root, size_t size)
+void *mem_zalloc(size_t size)
 {
-	void *mem = mem_alloc(mem_root, size);
+	void *mem = mem_alloc(size);
 	memset(mem, 0, size);
 	return mem;
 }
@@ -44,4 +46,11 @@ void mem_root_clear(struct mem_root *mem_root)
 	mem_root->allocs   = NULL;
 	mem_root->size	   = 0;
 	mem_root->capacity = 0;
+}
+
+struct mem_root *mem_root_set(struct mem_root *new_mem_root)
+{
+	struct mem_root *previous = mem_root;
+	mem_root		  = new_mem_root;
+	return previous;
 }

@@ -12,11 +12,10 @@
 #include "util/error.h"
 #include "util/mem.h"
 
-int sql_select(struct conn *conn, struct select *select, struct cursor *cur)
+int sql_select(struct select *select, struct cursor *cur)
 {
 	struct table *table;
 
-	cur->conn	= conn;
 	cur->select	= select;
 	cur->iter	= NULL;
 	cur->eof	= 0;
@@ -25,8 +24,7 @@ int sql_select(struct conn *conn, struct select *select, struct cursor *cur)
 	if (select->from.size > 0) {
 		table = (struct table *)select->from.data[0];
 		assert(table);
-		cur->iter	  = mem_alloc(&conn->mem_root,
-					      sizeof(struct tablescan_iter));
+		cur->iter = mem_alloc(sizeof(struct tablescan_iter));
 		tablescan_begin(cur->iter, table);
 	}
 
@@ -55,20 +53,19 @@ static void eval_field_expr(struct table *table, u8 *tup,
 	}
 }
 
-static void eval_literal_expr(struct mem_root	*mem_root,
-			      struct select_col *scol, struct row_field *field)
+static void eval_literal_expr(struct select_col *scol, struct row_field *field)
 {
 	switch (scol->typeoid) {
 	case DTYPE_INT2:
 	case DTYPE_INT4:
 	case DTYPE_INT8:
 		field->len   = dtype_len(scol->typeoid, -1);
-		field->data = mem_zalloc(mem_root, field->len);
+		field->data  = mem_zalloc(field->len);
 		*field->data = scol->val_int;
 		break;
 	case DTYPE_CHAR:
 		field->len  = strlen(scol->val_str);
-		field->data = mem_zalloc(mem_root, field->len + 1);
+		field->data = mem_zalloc(field->len + 1);
 		strcpy((char *)field->data, scol->val_str);
 		break;
 	default:
@@ -85,7 +82,7 @@ static void eval_result_column(struct cursor *cur, struct select_col *scol,
 		assert(tup);
 		eval_field_expr(cur->iter->table, tup, scol, col);
 	} else {
-		eval_literal_expr(&cur->conn->mem_root, scol, col);
+		eval_literal_expr(scol, col);
 	}
 }
 
@@ -104,8 +101,7 @@ int cursor_next(struct cursor *cur, struct row *row)
 	}
 
 	row->nfields = cur->select->select_list.size;
-	row->fields  = mem_zalloc(&cur->conn->mem_root,
-				  sizeof(struct row_field) * row->nfields);
+	row->fields  = mem_zalloc(sizeof(struct row_field) * row->nfields);
 
 	for (colno = 0; colno < row->nfields; ++colno) {
 		struct select_col *scol =

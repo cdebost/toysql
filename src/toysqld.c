@@ -10,6 +10,7 @@
 #include "pgwire.h"
 #include "sys.h"
 #include "util/error.h"
+#include "util/mem.h"
 
 static int create_server(struct sockaddr_un *sockname, int *sock)
 {
@@ -46,6 +47,7 @@ static int create_server(struct sockaddr_un *sockname, int *sock)
 			return 1;
 		}
 		conn_init(&conn, new_sock);
+		mem_root_set(&conn.mem_root);
 		pgwire_handle_connection(&conn);
 		close(new_sock);
 	}

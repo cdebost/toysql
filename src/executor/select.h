@@ -1,7 +1,6 @@
 #ifndef SELECT_H
 #define SELECT_H
 
-#include "connection.h"
 #include "executor/tablescan.h"
 #include "storage/heap.h"
 #include "table.h"
@@ -46,13 +45,12 @@ struct row {
 };
 
 struct cursor {
-	struct conn	      *conn;
 	struct select	      *select;
 	struct tablescan_iter *iter;
 	int		       eof;
 };
 
-int sql_select(struct conn *conn, struct select *select, struct cursor *cur);
+int sql_select(struct select *select, struct cursor *cur);
 
 int cursor_next(struct cursor *cur, struct row *row);
 

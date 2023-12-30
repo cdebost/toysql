@@ -1,4 +1,4 @@
-select oid, name from tables;
+select * from tables;
  oid |  name   
 -----+---------
    1 | tables
@@ -6,7 +6,7 @@ select oid, name from tables;
    3 | foo
 (3 rows)
 
-select oid, tableoid, name, typeoid, typemod from columns;
+select * from columns;
  oid | tableoid |   name   | typeoid | typemod 
 -----+----------+----------+---------+---------
    1 |        1 | oid      |      23 |      -1

@@ -1,0 +1,25 @@
+select;
+ERROR:  Syntax error
+LINE 1: select;
+              ^
+DETAIL:  Expected select expression
+select *;
+ERROR:  Syntax error
+LINE 1: select *;
+                ^
+DETAIL:  Expected FROM clause after SELECT *
+select * as a from foo;
+ERROR:  Syntax error
+LINE 1: select * as a from foo;
+                 ^
+DETAIL:  Cannot specify AS clause after *
+select from foo;
+ERROR:  Syntax error
+LINE 1: select from foo;
+               ^
+DETAIL:  Expected select expression
+select a from foo bar;
+ERROR:  Syntax error
+LINE 1: select a from foo bar;
+                          ^
+DETAIL:  Expected end of query

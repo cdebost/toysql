@@ -1,3 +1,3 @@
-select oid, name from tables;
+select * from tables;
 
-select oid, tableoid, name, typeoid, typemod from columns;
+select * from columns;

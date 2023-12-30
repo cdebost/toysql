@@ -34,12 +34,14 @@ struct select_expr {
 
 struct select_table {
 	struct lex_str name;
+	struct table  *table;
 };
 
 struct parse_tree {
 	enum com_type	 com_type;
         struct vec select_exprs;
-	struct select_table select_table;
+	i8		     ntables;
+	struct select_table *select_table;
 };
 
 int parse(struct conn *con, struct parse_tree *parse_tree);

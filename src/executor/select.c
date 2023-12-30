@@ -12,76 +12,21 @@
 #include "util/error.h"
 #include "util/mem.h"
 
-static int open_table(const struct lex_str *name, struct table **table)
-{
-	char buf[1024];
-	memset(buf, 0, sizeof(buf));
-	memcpy(buf, name->str, name->len);
-	*table = sys_load_table_by_name(buf);
-	return *table == NULL;
-}
-
-static int resolve(struct parse_tree *parse_tree, struct table *table)
-{
-	int i;
-
-	if (table == NULL)
-		return 0;
-
-	for (i = 0; i < parse_tree->select_exprs.size; ++i) {
-		struct select_expr *expr = (struct select_expr *)parse_tree->select_exprs.data[i];
-		if (expr->type == SELECT_EXPR_FIELD) {
-			int colno;
-			for (colno = 0; colno < table->ncols; ++colno) {
-				if (strncmp(expr->fieldname.str,
-					    table->cols[colno].name,
-					    expr->fieldname.len) == 0)
-					break;
-			}
-			if (colno == table->ncols) {
-				char name[1024];
-				memcpy(name, expr->fieldname.str, expr->fieldname.len);
-				name[expr->fieldname.len] = '\0';
-				errlog(ERROR, errcode(ER_UNDEFINED_COLUMN),
-						errmsg("Unknown column %s", name));
-				return 1;
-			}
-			expr->colno = colno;
-			expr->typeoid = table->cols[colno].typeoid;
-			expr->typemod  = table->cols[colno].typemod;
-		}
-	}
-	return 0;
-}
-
 int sql_select(struct conn *conn, struct parse_tree *parse_tree,
 	       struct cursor *cur)
 {
-	struct table *table = NULL;
-
 	cur->conn	= conn;
 	cur->parse_tree = parse_tree;
 	cur->iter	= NULL;
 	cur->eof	= 0;
 
-	if (parse_tree->select_table.name.len > 0) {
-		if (open_table(&parse_tree->select_table.name, &table)) {
-			char *name = mem_zalloc(
-				&conn->mem_root,
-				parse_tree->select_table.name.len + 1);
-			memcpy(name, parse_tree->select_table.name.str,
-			       parse_tree->select_table.name.len);
-			errlog(ERROR, errcode(ER_UNDEFINED_TABLE),
-			       errmsg("Unknown table %s", name));
-			return 1;
-		}
+	assert(parse_tree->ntables < 2);
+	if (parse_tree->ntables > 0) {
+		assert(parse_tree->select_table->table);
 		cur->iter	  = mem_alloc(&conn->mem_root,
 					      sizeof(struct tablescan_iter));
-		tablescan_begin(cur->iter, table);
+		tablescan_begin(cur->iter, parse_tree->select_table->table);
 	}
-
-	if (resolve(parse_tree, table))
-		return 1;
 
 	return 0;
 }

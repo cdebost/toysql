@@ -1,6 +1,5 @@
 #include "parser.h"
 
-#include "lex.h"
 #include <ctype.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -8,9 +7,14 @@
 #include <string.h>
 
 #include "connection.h"
+#include "lex.h"
 #include "pgwire.h"
+#include "sys.h"
+#include "table.h"
 #include "univ.h"
 #include "util/error.h"
+#include "util/mem.h"
+#include "util/vec.h"
 
 static void errpos_from_lex(struct lex *lex)
 {
@@ -29,24 +33,20 @@ static void token_next_skip_space(struct lex *lex)
 static int parse_select_exprs(struct conn *conn, struct lex *lex,
                               struct parse_tree *parse_tree)
 {
+	struct select_expr *select_expr;
+
 	vec_init(&parse_tree->select_exprs, 1);
 
-	token_next_skip_space(lex);
-	if (lex->token.tclass == TK_STAR) {
-		errlog(ERROR, errcode(ER_FEATURE_NOT_SUPPORTED),
-		       errmsg("Syntax error"),
-		       errdetail("Select * not implemented"),
-		       errpos_from_lex(lex));
-		return 1;
-	}
-
 	for (;;) {
-		struct select_expr *select_expr;
-
 		select_expr =
 			mem_alloc(&conn->mem_root, sizeof(struct select_expr));
 		memset(select_expr, 0, sizeof(struct select_expr));
+
+		token_next_skip_space(lex);
 		switch (lex->token.tclass) {
+		case TK_STAR:
+			select_expr->type = SELECT_EXPR_STAR;
+			break;
 		case TK_IDENT:
 			select_expr->type      = SELECT_EXPR_FIELD;
 			select_expr->fieldname = lex->token.val_str;
@@ -66,13 +66,22 @@ static int parse_select_exprs(struct conn *conn, struct lex *lex,
 		default:
 			errlog(ERROR, errcode(ER_SYNTAX_ERROR),
 			       errmsg("Syntax error"),
-			       errdetail("Expected identifier or literal"),
+			       errdetail("Expected select expression"),
 			       errpos_from_lex(lex));
 			return 1;
 		}
 
 		token_next_skip_space(lex);
 		if (lex->token.tclass == TK_AS) {
+			if (select_expr->type == SELECT_EXPR_STAR) {
+				errlog(ERROR, errcode(ER_SYNTAX_ERROR),
+				       errmsg("Syntax error"),
+				       errdetail(
+					       "Cannot specify AS clause after *"),
+				       errpos_from_lex(lex));
+				return 1;
+			}
+
 			token_next_skip_space(lex);
 			if (lex->token.tclass != TK_IDENT) {
 				errlog(ERROR, errcode(ER_SYNTAX_ERROR),
@@ -89,7 +98,6 @@ static int parse_select_exprs(struct conn *conn, struct lex *lex,
 
 		if (lex->token.tclass != TK_COMMA)
 			break;
-		token_next_skip_space(lex);
 	}
 
 	return 0;
@@ -104,7 +112,107 @@ static int parse_tables(struct conn *conn, struct lex *lex,
 		       errdetail("Expected table name"), errpos_from_lex(lex));
 		return 1;
 	}
-	parse_tree->select_table.name = lex->token.val_str;
+	token_next_skip_space(lex);
+	if (lex->token.tclass == TK_COMMA) {
+		errlog(ERROR, errcode(ER_FEATURE_NOT_SUPPORTED),
+		       errmsg("Syntax error"),
+		       errdetail("Joins not implemented"),
+		       errpos_from_lex(lex));
+		return 1;
+	}
+	parse_tree->ntables = 1;
+	parse_tree->select_table =
+		mem_zalloc(&conn->mem_root, sizeof(struct select_table));
+	parse_tree->select_table->name = lex->token.val_str;
+	return 0;
+}
+
+static struct table *open_table(const struct lex_str *lname)
+{
+	char	     *name = strndup(lname->str, lname->len);
+	struct table *table;
+
+	table = sys_load_table_by_name(name);
+	if (table == NULL)
+		errlog(ERROR, errcode(ER_UNDEFINED_TABLE),
+		       errmsg("Unknown table %s", name));
+	free(name);
+	return table;
+}
+
+static void expand_star_exprs(struct conn *conn, struct parse_tree *parse_tree,
+			      struct table *table)
+{
+	struct vec	    new_exprs;
+	int		    i;
+	struct select_expr *expr;
+	u16		    colno;
+
+	assert(parse_tree->com_type == SQL_SELECT);
+
+	vec_init(&new_exprs, parse_tree->select_exprs.size);
+	for (i = 0; i < parse_tree->select_exprs.size; ++i) {
+		expr = (struct select_expr *)parse_tree->select_exprs.data[i];
+		if (expr->type != SELECT_EXPR_STAR) {
+			vec_push(&new_exprs, expr);
+			continue;
+		}
+
+		for (colno = 0; colno < table->ncols; ++colno) {
+			struct column *col = &table->cols[colno];
+			expr		   = malloc(sizeof(struct select_expr));
+			memset(expr, 0, sizeof(struct select_expr));
+			expr->type	    = SELECT_EXPR_FIELD;
+			expr->typeoid	    = col->typeoid;
+			expr->typemod	    = col->typemod;
+			expr->fieldname.str = col->name;
+			expr->fieldname.len = strlen(col->name);
+			expr->colno	    = colno;
+			vec_push(&new_exprs, expr);
+		}
+	}
+	vec_free(&parse_tree->select_exprs);
+	parse_tree->select_exprs = new_exprs;
+}
+
+static int resolve(struct conn *conn, struct parse_tree *parse_tree)
+{
+	int i;
+
+	if (parse_tree->ntables > 0) {
+		struct select_table *seltab = parse_tree->select_table;
+		seltab->table		    = open_table(&seltab->name);
+		if (seltab->table == NULL)
+			return 1;
+		expand_star_exprs(conn, parse_tree, seltab->table);
+	}
+
+	for (i = 0; i < parse_tree->select_exprs.size; ++i) {
+		struct select_expr *expr =
+			(struct select_expr *)parse_tree->select_exprs.data[i];
+		if (expr->type == SELECT_EXPR_FIELD) {
+			int	      colno;
+			struct table *table = parse_tree->select_table->table;
+			for (colno = 0; colno < table->ncols; ++colno) {
+				if (strncmp(expr->fieldname.str,
+					    table->cols[colno].name,
+					    expr->fieldname.len) == 0)
+					break;
+			}
+			if (colno == table->ncols) {
+				char name[1024];
+				memcpy(name, expr->fieldname.str,
+				       expr->fieldname.len);
+				name[expr->fieldname.len] = '\0';
+				errlog(ERROR, errcode(ER_UNDEFINED_COLUMN),
+				       errmsg("Unknown column %s", name));
+				return 1;
+			}
+			expr->colno   = colno;
+			expr->typeoid = table->cols[colno].typeoid;
+			expr->typemod = table->cols[colno].typemod;
+		}
+	}
 	return 0;
 }
 
@@ -113,9 +221,19 @@ static int parse_select(struct conn *conn, struct lex *lex,
 {
 	if (parse_select_exprs(conn, lex, parse_tree))
 		return 1;
+	assert(parse_tree->select_exprs.size > 0);
 
-	if (lex->token.tclass == TK_SEMICOLON || lex->token.tclass == TK_EOF)
+	if (lex->token.tclass == TK_SEMICOLON || lex->token.tclass == TK_EOF) {
+		if (((struct select_expr *)parse_tree->select_exprs.data[0])
+			    ->type == SELECT_EXPR_STAR) {
+			errlog(ERROR, errcode(ER_SYNTAX_ERROR),
+			       errmsg("Syntax error"),
+			       errdetail("Expected FROM clause after SELECT *"),
+			       errpos_from_lex(lex));
+			return 1;
+		}
 		return 0;
+	}
 
 	if (lex->token.tclass != TK_FROM) {
 		errlog(ERROR, errcode(ER_SYNTAX_ERROR), errmsg("Syntax error"),
@@ -125,6 +243,16 @@ static int parse_select(struct conn *conn, struct lex *lex,
 	}
 
 	if (parse_tables(conn, lex, parse_tree))
+		return 1;
+
+	if (lex->token.tclass != TK_SEMICOLON && lex->token.tclass != TK_EOF) {
+		errlog(ERROR, errcode(ER_SYNTAX_ERROR), errmsg("Syntax error"),
+		       errdetail("Expected end of query"),
+		       errpos_from_lex(lex));
+		return 1;
+	}
+
+	if (resolve(conn, parse_tree))
 		return 1;
 
 	return 0;

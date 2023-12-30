@@ -9,7 +9,7 @@
 
 struct row_field {
 	u32   len;
-	byte *data;
+	u8   *data;
 };
 
 struct row {

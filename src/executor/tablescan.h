@@ -11,7 +11,7 @@ struct tablescan_iter {
 	struct heap_page *page;
 	u16	      slotno;
 	u16           slotcnt;
-	byte *tup;
+	u8		 *tup;
 	i32 tupsize;
 };
 

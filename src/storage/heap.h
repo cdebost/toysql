@@ -27,9 +27,9 @@ void heap_page_init(struct heap_page *page);
 u16 heap_page_slot_count(struct heap_page *page);
 
 /* Add a new tuple to the end of the page, in the first free slot */
-void heap_page_add_tuple(struct heap_page *page, const byte *data, size_t size);
+void heap_page_add_tuple(struct heap_page *page, const u8 *data, size_t size);
 
 /* Read a tuple from the specified slot number */
-u16 heap_page_read_tuple(struct heap_page *page, u16 slotno, byte **data);
+u16 heap_page_read_tuple(struct heap_page *page, u16 slotno, u8 **data);
 
 #endif

@@ -7,11 +7,11 @@
 #include <stdio.h>
 #include <string.h>
 
-static inline void ut_print_hexdump(char *buf, size_t len)
+static inline void ut_print_hexdump(u8 *buf, size_t len)
 {
 	int row_start = 0;
 	for (;;) {
-		char   row[16];
+		u8     row[16];
 		size_t row_len;
 		int    i;
 
@@ -30,7 +30,7 @@ static inline void ut_print_hexdump(char *buf, size_t len)
 			printf("   ");
 		printf(" ");
 		for (i = 0; i < row_len; ++i) {
-			char c = buf[row_start + i];
+			u8 c = buf[row_start + i];
 			if (c == '\0')
 				printf("\033[31m.\033[0m");
 			else if (isprint(c))

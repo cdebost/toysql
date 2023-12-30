@@ -5,7 +5,7 @@
 
 static void test_empty_page()
 {
-	byte		  page[PAGE_SIZE];
+	u8		  page[PAGE_SIZE];
 	struct heap_page *heap_page = (struct heap_page *)page;
 
 	heap_page_init(heap_page);
@@ -15,12 +15,12 @@ static void test_empty_page()
 
 static void test_add_tuple()
 {
-	byte		  page[PAGE_SIZE];
+	u8		  page[PAGE_SIZE];
 	struct heap_page *heap_page = (struct heap_page *)page;
-	char		  tup1[]    = "This is a short tuple";
-	char		  tup2[] =
+	u8		  tup1[]    = "This is a short tuple";
+	u8		  tup2[] =
 		"This is a longer tuple that should take up more space on the page";
-	char *stored_tup;
+	u8   *stored_tup;
 	u16   stored_tup_sz;
 
 	heap_page_init(heap_page);
@@ -30,10 +30,10 @@ static void test_add_tuple()
 	EXPECT_EQ(heap_page_slot_count(heap_page), 2);
 	stored_tup_sz = heap_page_read_tuple(heap_page, 0, &stored_tup);
 	EXPECT_EQ(stored_tup_sz, sizeof(tup1));
-	EXPECT_STREQ(stored_tup, tup1);
+	EXPECT_STREQ((char *)stored_tup, (char *)tup1);
 	stored_tup_sz = heap_page_read_tuple(heap_page, 1, &stored_tup);
 	EXPECT_EQ(stored_tup_sz, sizeof(tup2));
-	EXPECT_STREQ(stored_tup, tup2);
+	EXPECT_STREQ((char *)stored_tup, (char *)tup2);
 }
 
 TEST_SUITE(heap, TEST(test_empty_page), TEST(test_add_tuple));

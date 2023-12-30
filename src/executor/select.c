@@ -86,7 +86,7 @@ int sql_select(struct conn *conn, struct parse_tree *parse_tree,
 	return 0;
 }
 
-static void eval_field_expr(struct table *table, byte *tup,
+static void eval_field_expr(struct table *table, u8 *tup,
 			    struct select_expr *expr, struct row_field *field)
 {
 	int    i;
@@ -102,7 +102,7 @@ static void eval_field_expr(struct table *table, byte *tup,
 	}
 	if (i == table->ncols) {
 		field->len  = 0;
-		field->data = "";
+		field->data = (u8 *)"";
 	} else {
 		field->len  = dtype_len(col->typeoid, col->typemod);
 		field->data = tup + off;
@@ -132,7 +132,7 @@ static void eval_literal_expr(struct mem_root	 *mem_root,
 }
 
 static void eval_result_column(struct cursor *cur, struct select_expr *expr,
-			       struct row_field *col, byte *tup)
+			       struct row_field *col, u8 *tup)
 {
 	if (expr->type == SELECT_EXPR_FIELD) {
 		assert(tup);

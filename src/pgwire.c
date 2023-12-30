@@ -52,14 +52,14 @@ struct startup_message {
 };
 
 struct message {
-	char  type;
+	u8    type;
 	u32   len;
-	char *payload;
+	u8   *payload;
 };
 
 static u32 pgwire_read_packet_length(struct conn *conn)
 {
-	char buf[4];
+	u8   buf[4];
 	u32  len;
 
 	if (read(conn->socket, buf, 4) < 4)
@@ -94,7 +94,7 @@ static int read_message(struct conn *conn, struct message *message)
 
 static int write_message(struct conn *conn, struct message *message)
 {
-	char buf[4];
+	u8   buf[4];
 	u32  payload_len;
 
 	if (write(conn->socket, &message->type, 1) < 1)
@@ -149,8 +149,8 @@ int pgwire_flush_errors(struct conn *conn)
 int pgwire_send_error(struct conn *conn, struct err *err)
 {
 	struct message message;
-	char	       buffer[1024];
-	char	      *ptr;
+	u8	       buffer[1024];
+	u8	      *ptr;
 
 	message.type = TAG_ERROR_RESPONSE;
 
@@ -203,8 +203,8 @@ static int read_startup_message(struct conn	       *conn,
 				struct startup_message *message)
 {
 	u32	    len;
-	char	   *buf;
-	const char *ptr;
+	u8	   *buf;
+	const u8   *ptr;
 
 	len = pgwire_read_packet_length(conn) - sizeof(len);
 	buf = malloc(len);
@@ -254,7 +254,7 @@ static int write_parameter_status(struct conn *conn, const char *key,
 	struct message message;
 	size_t	       keylen = strlen(key) + 1;
 	size_t	       vallen = strlen(val) + 1;
-	char	      *ptr;
+	u8	      *ptr;
 
 	message.type	= TAG_PARAMETER_STATUS;
 	message.len	= sizeof(message.len) + keylen + vallen;
@@ -324,15 +324,15 @@ int pgwire_read_query(struct conn *conn)
 		return 1;
 	if (message.type != 'Q')
 		return 1;
-	conn->query = message.payload;
+	conn->query = (char *)message.payload;
 	return 0;
 }
 
 int pgwire_send_metadata(struct conn *conn, struct pgwire_rowdesc *row_desc)
 {
 	struct message message;
-	char	       buffer[1024];
-	char	      *ptr;
+	u8	       buffer[1024];
+	u8	      *ptr;
 	int	       i;
 
 	message.type = TAG_ROW_DESCRIPTION;
@@ -360,8 +360,8 @@ int pgwire_send_metadata(struct conn *conn, struct pgwire_rowdesc *row_desc)
 int pgwire_send_data(struct conn *conn, struct pgwire_datarow *row)
 {
 	struct message message;
-	char	       buffer[1024];
-	char	      *ptr;
+	u8	       buffer[1024];
+	u8	      *ptr;
 	int	       i;
 
 	message.type = TAG_DATA_ROW;
@@ -387,8 +387,8 @@ static int pgwire_complete_command(struct conn *conn)
 	struct message message;
 
 	message.type	= TAG_COMMAND_COMPLETE;
-	message.payload = "SELECT 1";
-	message.len	= strlen(message.payload) + 1 + sizeof(message.len);
+	message.payload = (u8 *)"SELECT 1";
+	message.len = strlen((char *)message.payload) + 1 + sizeof(message.len);
 
 	return write_message(conn, &message);
 }
@@ -435,7 +435,8 @@ static void make_row_desc(struct conn *conn, struct parse_tree *parse_tree,
 	}
 }
 
-static void to_text(struct conn *conn, u32 typeoid, i32 typemod, const byte *data, char **out)
+static void to_text(struct conn *conn, u32 typeoid, i32 typemod, const u8 *data,
+		    char **out)
 {
 	*out = mem_alloc(&conn->mem_root, 1024);
 	switch (typeoid) {
@@ -463,8 +464,11 @@ static void serialize_row(struct conn *conn, struct pgwire_rowdesc *rowdesc, str
 		mem_alloc(&conn->mem_root,
 			  sizeof(struct pgwire_datarow_field) * row->nfields);
 	for (colno = 0; colno < row->nfields; ++colno) {
-		to_text(conn, rowdesc->fields[colno].typeoid, rowdesc->fields[colno].typmod, row->fields[colno].data, &dr->fields[colno].data);
-		dr->fields[colno].fieldlen = strlen(dr->fields[colno].data);
+		to_text(conn, rowdesc->fields[colno].typeoid,
+			rowdesc->fields[colno].typmod, row->fields[colno].data,
+			(char **)&dr->fields[colno].data);
+		dr->fields[colno].fieldlen =
+			strlen((char *)dr->fields[colno].data);
 	}
 }
 

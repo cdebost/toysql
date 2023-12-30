@@ -45,7 +45,7 @@ struct pgwire_datarow_field {
 	u32 fieldlen;
 	/* The value of the column, in the format indicated by the associated
 	 * format code. n is the above length. */
-	char *data;
+	u8 *data;
 };
 
 struct pgwire_datarow {

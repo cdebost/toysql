@@ -84,7 +84,7 @@ void sys_bootstrap(void)
 
 void init_dummy_tables(void)
 {
-	byte		  tup[1024];
+	u8 tup[1024];
 
 	table_init(&table_foo, "foo", /*ncols=*/2);
 	table_foo.cols[0].name = "a";
@@ -98,15 +98,15 @@ void init_dummy_tables(void)
 	table_foo_heap = malloc(PAGE_SIZE);
 	heap_page_init(table_foo_heap);
 	memset(tup, 0, sizeof(tup));
-	strcpy(tup, "one");
+	strcpy((char *)tup, "one");
 	*(tup + 5) = 1;
 	heap_page_add_tuple(table_foo_heap, tup, 9);
 	memset(tup, 0, sizeof(tup));
-	strcpy(tup, "two");
+	strcpy((char *)tup, "two");
 	*(tup + 5) = 2;
 	heap_page_add_tuple(table_foo_heap, tup, 9);
 	memset(tup, 0, sizeof(tup));
-	strcpy(tup, "three");
+	strcpy((char *)tup, "three");
 	*(tup + 5) = 3;
 	heap_page_add_tuple(table_foo_heap, tup, 9);
 }
@@ -122,7 +122,7 @@ int sys_add_table(struct table *tab)
 	memset(&ttup, 0, sizeof(ttup));
 	ttup.oid = tab->oid;
 	strncpy(ttup.name, tab->name, NAME_LENGTH);
-	heap_page_add_tuple(tables_heap, (byte *)&ttup, sizeof(ttup));
+	heap_page_add_tuple(tables_heap, (u8 *)&ttup, sizeof(ttup));
 
 	for (colno = 0; colno < tab->ncols; ++colno) {
 		struct column *col = &tab->cols[colno];
@@ -132,7 +132,7 @@ int sys_add_table(struct table *tab)
 		strncpy(ctup.name, col->name, NAME_LENGTH);
 		ctup.typeoid = col->typeoid;
 		ctup.typemod = col->typemod;
-		heap_page_add_tuple(columns_heap, (byte *)&ctup, sizeof(ctup));
+		heap_page_add_tuple(columns_heap, (u8 *)&ctup, sizeof(ctup));
 	}
 
 	return 0;

@@ -21,11 +21,11 @@ u16 heap_page_slot_count(struct heap_page *page)
 	return (page->free_low - HEAP_HEADER_SIZE) / sizeof(struct heap_slot);
 }
 
-void heap_page_add_tuple(struct heap_page *page, const byte *data, size_t size)
+void heap_page_add_tuple(struct heap_page *page, const u8 *data, size_t size)
 {
 	u16		  slotno;
 	struct heap_slot *slot;
-	byte		 *tup;
+	u8		 *tup;
 
 	slotno	  = heap_page_slot_count(page);
 	slot	  = &page->slots[slotno];
@@ -35,18 +35,18 @@ void heap_page_add_tuple(struct heap_page *page, const byte *data, size_t size)
 	page->free_low += sizeof(struct heap_slot);
 	page->free_high -= size;
 
-	tup = (byte *)page + slot->off;
+	tup = (u8 *)page + slot->off;
 	memcpy(tup, data, size);
 }
 
-u16 heap_page_read_tuple(struct heap_page *page, u16 slotno, byte **data)
+u16 heap_page_read_tuple(struct heap_page *page, u16 slotno, u8 **data)
 {
 	struct heap_slot *slot;
-	byte		 *tup;
+	u8		 *tup;
 
 	assert(slotno < heap_page_slot_count(page));
 	slot = &page->slots[slotno];
-	tup  = (byte *)page + slot->off;
+	tup  = (u8 *)page + slot->off;
 
 	*data = tup;
 	return slot->sz;

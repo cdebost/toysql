@@ -1,38 +1,40 @@
 #include "executor/select.h"
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "dtype.h"
-#include "parser/parser.h"
 #include "sys.h"
 #include "univ.h"
 #include "util/bytes.h"
 #include "util/error.h"
 #include "util/mem.h"
 
-int sql_select(struct conn *conn, struct parse_tree *parse_tree,
-	       struct cursor *cur)
+int sql_select(struct conn *conn, struct select *select, struct cursor *cur)
 {
+	struct table *table;
+
 	cur->conn	= conn;
-	cur->parse_tree = parse_tree;
+	cur->select	= select;
 	cur->iter	= NULL;
 	cur->eof	= 0;
 
-	assert(parse_tree->ntables < 2);
-	if (parse_tree->ntables > 0) {
-		assert(parse_tree->select_table->table);
+	assert(select->from.size < 2);
+	if (select->from.size > 0) {
+		table = (struct table *)select->from.data[0];
+		assert(table);
 		cur->iter	  = mem_alloc(&conn->mem_root,
 					      sizeof(struct tablescan_iter));
-		tablescan_begin(cur->iter, parse_tree->select_table->table);
+		tablescan_begin(cur->iter, table);
 	}
 
 	return 0;
 }
 
 static void eval_field_expr(struct table *table, u8 *tup,
-			    struct select_expr *expr, struct row_field *field)
+			    struct select_col *scol, struct row_field *field)
 {
 	int    i;
 	struct column *col;
@@ -40,8 +42,7 @@ static void eval_field_expr(struct table *table, u8 *tup,
 
 	for (i = 0; i < table->ncols; ++i) {
 		col = &table->cols[i];
-		if (strncmp(col->name, expr->val_str.str,
-			    expr->val_str.len) == 0)
+		if (strcmp(col->name, scol->val_str) == 0)
 			break;
 		off += dtype_len(col->typeoid, col->typemod);
 	}
@@ -54,36 +55,37 @@ static void eval_field_expr(struct table *table, u8 *tup,
 	}
 }
 
-static void eval_literal_expr(struct mem_root	 *mem_root,
-			      struct select_expr *expr, struct row_field *field)
+static void eval_literal_expr(struct mem_root	*mem_root,
+			      struct select_col *scol, struct row_field *field)
 {
-	switch (expr->typeoid) {
+	switch (scol->typeoid) {
 	case DTYPE_INT2:
 	case DTYPE_INT4:
 	case DTYPE_INT8:
-		field->len = dtype_len(expr->typeoid, -1);
+		field->len   = dtype_len(scol->typeoid, -1);
 		field->data = mem_zalloc(mem_root, field->len);
-		*field->data = expr->val_int;
+		*field->data = scol->val_int;
 		break;
 	case DTYPE_CHAR:
-		field->len  = expr->val_str.len;
-		field->data = mem_zalloc(mem_root, expr->val_str.len + 1);
-		memcpy(field->data, expr->val_str.str, expr->val_str.len);
+		field->len  = strlen(scol->val_str);
+		field->data = mem_zalloc(mem_root, field->len + 1);
+		strcpy((char *)field->data, scol->val_str);
 		break;
 	default:
-		errlog(FATAL, errmsg("Unexpected literal of type %d", expr->typeoid));
+		errlog(FATAL,
+		       errmsg("Unexpected literal of type %d", scol->typeoid));
 		break;
 	}
 }
 
-static void eval_result_column(struct cursor *cur, struct select_expr *expr,
+static void eval_result_column(struct cursor *cur, struct select_col *scol,
 			       struct row_field *col, u8 *tup)
 {
-	if (expr->type == SELECT_EXPR_FIELD) {
+	if (scol->type == SELECT_COL_FIELD) {
 		assert(tup);
-		eval_field_expr(cur->iter->table, tup, expr, col);
+		eval_field_expr(cur->iter->table, tup, scol, col);
 	} else {
-		eval_literal_expr(&cur->conn->mem_root, expr, col);
+		eval_literal_expr(&cur->conn->mem_root, scol, col);
 	}
 }
 
@@ -101,15 +103,16 @@ int cursor_next(struct cursor *cur, struct row *row)
 		}
 	}
 
-	row->nfields = cur->parse_tree->select_exprs.size;
+	row->nfields = cur->select->select_list.size;
 	row->fields  = mem_zalloc(&cur->conn->mem_root,
 				  sizeof(struct row_field) * row->nfields);
 
 	for (colno = 0; colno < row->nfields; ++colno) {
-		struct select_expr *expr =
-			(struct select_expr *)
-				cur->parse_tree->select_exprs.data[colno];
-		eval_result_column(cur, expr, &row->fields[colno], cur->iter ? cur->iter->tup : NULL);
+		struct select_col *scol =
+			(struct select_col *)
+				cur->select->select_list.data[colno];
+		eval_result_column(cur, scol, &row->fields[colno],
+				   cur->iter ? cur->iter->tup : NULL);
 	}
 
 	if (!cur->iter)

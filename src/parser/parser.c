@@ -1,5 +1,6 @@
 #include "parser.h"
 
+#include <assert.h>
 #include <ctype.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -7,6 +8,7 @@
 #include <string.h>
 
 #include "connection.h"
+#include "executor/select.h"
 #include "lex.h"
 #include "pgwire.h"
 #include "sys.h"
@@ -52,15 +54,11 @@ static int parse_select_exprs(struct conn *conn, struct lex *lex,
 			select_expr->fieldname = lex->token.val_str;
 			break;
 		case TK_NUM:
-			select_expr->type    = SELECT_EXPR_LITERAL;
-			select_expr->typeoid = DTYPE_INT4;
-			select_expr->typemod = -1;
+			select_expr->type    = SELECT_EXPR_NUM;
 			select_expr->val_int = lex->token.val_int;
 			break;
 		case TK_STR:
-			select_expr->type    = SELECT_EXPR_LITERAL;
-			select_expr->typeoid = DTYPE_CHAR;
-			select_expr->typemod = lex->token.val_str.len;
+			select_expr->type    = SELECT_EXPR_STR;
 			select_expr->val_str = lex->token.val_str;
 			break;
 		default:
@@ -140,82 +138,6 @@ static struct table *open_table(const struct lex_str *lname)
 	return table;
 }
 
-static void expand_star_exprs(struct conn *conn, struct parse_tree *parse_tree,
-			      struct table *table)
-{
-	struct vec	    new_exprs;
-	int		    i;
-	struct select_expr *expr;
-	u16		    colno;
-
-	assert(parse_tree->com_type == SQL_SELECT);
-
-	vec_init(&new_exprs, parse_tree->select_exprs.size);
-	for (i = 0; i < parse_tree->select_exprs.size; ++i) {
-		expr = (struct select_expr *)parse_tree->select_exprs.data[i];
-		if (expr->type != SELECT_EXPR_STAR) {
-			vec_push(&new_exprs, expr);
-			continue;
-		}
-
-		for (colno = 0; colno < table->ncols; ++colno) {
-			struct column *col = &table->cols[colno];
-			expr		   = malloc(sizeof(struct select_expr));
-			memset(expr, 0, sizeof(struct select_expr));
-			expr->type	    = SELECT_EXPR_FIELD;
-			expr->typeoid	    = col->typeoid;
-			expr->typemod	    = col->typemod;
-			expr->fieldname.str = col->name;
-			expr->fieldname.len = strlen(col->name);
-			expr->colno	    = colno;
-			vec_push(&new_exprs, expr);
-		}
-	}
-	vec_free(&parse_tree->select_exprs);
-	parse_tree->select_exprs = new_exprs;
-}
-
-static int resolve(struct conn *conn, struct parse_tree *parse_tree)
-{
-	int i;
-
-	if (parse_tree->ntables > 0) {
-		struct select_table *seltab = parse_tree->select_table;
-		seltab->table		    = open_table(&seltab->name);
-		if (seltab->table == NULL)
-			return 1;
-		expand_star_exprs(conn, parse_tree, seltab->table);
-	}
-
-	for (i = 0; i < parse_tree->select_exprs.size; ++i) {
-		struct select_expr *expr =
-			(struct select_expr *)parse_tree->select_exprs.data[i];
-		if (expr->type == SELECT_EXPR_FIELD) {
-			int	      colno;
-			struct table *table = parse_tree->select_table->table;
-			for (colno = 0; colno < table->ncols; ++colno) {
-				if (strncmp(expr->fieldname.str,
-					    table->cols[colno].name,
-					    expr->fieldname.len) == 0)
-					break;
-			}
-			if (colno == table->ncols) {
-				char name[1024];
-				memcpy(name, expr->fieldname.str,
-				       expr->fieldname.len);
-				name[expr->fieldname.len] = '\0';
-				errlog(ERROR, errcode(ER_UNDEFINED_COLUMN),
-				       errmsg("Unknown column %s", name));
-				return 1;
-			}
-			expr->colno   = colno;
-			expr->typeoid = table->cols[colno].typeoid;
-			expr->typemod = table->cols[colno].typemod;
-		}
-	}
-	return 0;
-}
-
 static int parse_select(struct conn *conn, struct lex *lex,
 			struct parse_tree *parse_tree)
 {
@@ -252,34 +174,172 @@ static int parse_select(struct conn *conn, struct lex *lex,
 		return 1;
 	}
 
-	if (resolve(conn, parse_tree))
-		return 1;
-
 	return 0;
 }
 
-int parse(struct conn *conn, struct parse_tree *parse_tree)
+int make_parse_tree(struct conn *conn, struct lex *lex,
+		    struct parse_tree *parse_tree)
 {
-	struct lex lex;
-
-	if (!conn->query || conn->query[0] == '\0')
-		return 1;
-
 	memset(parse_tree, 0, sizeof(struct parse_tree));
-	lex_init(&lex, conn->query);
-	lex_next_token(&lex);
+	lex_next_token(lex);
 
-	switch (lex.token.tclass) {
+	switch (lex->token.tclass) {
 	case TK_SELECT:
 		parse_tree->com_type = SQL_SELECT;
-		return parse_select(conn, &lex, parse_tree);
+		return parse_select(conn, lex, parse_tree);
 	default:
 		errlog(ERROR, errcode(ER_FEATURE_NOT_SUPPORTED),
 		       errmsg("Syntax error"),
 		       errdetail("Only select statements supported"),
-		       errpos_from_lex((&lex)));
+		       errpos_from_lex(lex));
 		return 1;
 	}
+}
+
+int transform_select_expr(struct conn *conn, struct select_expr *expr,
+			  struct select *select)
+{
+	struct table *table = select->from.size > 0 ? select->from.data[0] :
+						      NULL;
+	struct select_col *scol;
+	struct column	  *col;
+	int		   colno;
+
+	switch (expr->type) {
+	case SELECT_EXPR_STAR:
+		for (colno = 0; colno < table->ncols; ++colno) {
+			col  = &table->cols[colno];
+			scol = mem_zalloc(&conn->mem_root,
+					  sizeof(struct select_col));
+			memset(scol, 0, sizeof(struct select_col));
+			scol->type	= SELECT_COL_FIELD;
+			scol->typeoid	= col->typeoid;
+			scol->typemod	= col->typemod;
+			scol->fieldname = (char *)col->name;
+			scol->colno	= colno;
+			vec_push(&select->select_list, scol);
+		}
+		break;
+	case SELECT_EXPR_FIELD:
+		for (colno = 0; colno < table->ncols; ++colno) {
+			if (strncmp(expr->fieldname.str,
+				    table->cols[colno].name,
+				    expr->fieldname.len) == 0)
+				break;
+		}
+		if (colno == table->ncols) {
+			char name[1024];
+			memcpy(name, expr->fieldname.str, expr->fieldname.len);
+			name[expr->fieldname.len] = '\0';
+			errlog(ERROR, errcode(ER_UNDEFINED_COLUMN),
+			       errmsg("Unknown column %s", name));
+			return 1;
+		}
+		col  = &table->cols[colno];
+		scol = mem_zalloc(&conn->mem_root, sizeof(struct select_col));
+		scol->type	= SELECT_COL_FIELD;
+		scol->typeoid	= col->typeoid;
+		scol->typemod	= col->typemod;
+		scol->fieldname = (char *)col->name;
+		scol->colno	= colno;
+		if (expr->as.len > 0) {
+			scol->name =
+				mem_alloc(&conn->mem_root, expr->as.len + 1);
+			memcpy(scol->name, expr->as.str, expr->as.len);
+			scol->name[expr->as.len] = '\0';
+		}
+		vec_push(&select->select_list, scol);
+		break;
+	case SELECT_EXPR_NUM:
+		scol = mem_zalloc(&conn->mem_root, sizeof(struct select_col));
+		scol->type    = SELECT_COL_LITERAL;
+		scol->typeoid = DTYPE_INT4;
+		scol->typemod = -1;
+		scol->val_int = expr->val_int;
+		if (expr->as.len > 0) {
+			scol->name =
+				mem_alloc(&conn->mem_root, expr->as.len + 1);
+			memcpy(scol->name, expr->as.str, expr->as.len);
+			scol->name[expr->as.len] = '\0';
+		}
+		vec_push(&select->select_list, scol);
+		break;
+	case SELECT_EXPR_STR:
+		scol = mem_zalloc(&conn->mem_root, sizeof(struct select_col));
+		scol->type    = SELECT_COL_LITERAL;
+		scol->typeoid = DTYPE_CHAR;
+		scol->typemod = expr->val_str.len;
+		scol->val_str =
+			mem_alloc(&conn->mem_root, expr->val_str.len + 1);
+		memcpy(scol->val_str, expr->val_str.str, expr->val_str.len);
+		scol->val_str[expr->val_str.len] = '\0';
+		if (expr->as.len > 0) {
+			scol->name =
+				mem_alloc(&conn->mem_root, expr->as.len + 1);
+			memcpy(scol->name, expr->as.str, expr->as.len);
+			scol->name[expr->as.len] = '\0';
+		}
+		vec_push(&select->select_list, scol);
+		break;
+	}
+	return 0;
+}
+
+int transform_select(struct conn *conn, struct parse_tree *parse_tree,
+		     struct select *select)
+{
+	int i;
+
+	memset(select, 0, sizeof(struct select));
+
+	vec_init(&select->from, parse_tree->ntables);
+	if (parse_tree->ntables > 0) {
+		struct table *table;
+		table = open_table(&parse_tree->select_table->name);
+		if (table == NULL)
+			return 1;
+		vec_push(&select->from, table);
+	}
+	assert(select->from.size < 2);
+
+	for (i = 0; i < parse_tree->select_exprs.size; ++i) {
+		struct select_expr *expr =
+			(struct select_expr *)parse_tree->select_exprs.data[i];
+
+		if (transform_select_expr(conn, expr, select))
+			return 1;
+	}
+	return 0;
+}
+
+int transform(struct conn *conn, struct parse_tree *parse_tree,
+	      void **query_tree)
+{
+	switch (parse_tree->com_type) {
+	case SQL_SELECT:
+		*query_tree = mem_alloc(&conn->mem_root, sizeof(struct select));
+		return transform_select(conn, parse_tree,
+					(struct select *)*query_tree);
+	default:
+		assert(0);
+	}
+}
+
+int parse(struct conn *conn, void **query_tree)
+{
+	struct lex	  lex;
+	struct parse_tree parse_tree;
+
+	if (!conn->query || conn->query[0] == '\0')
+		return 1;
+
+	lex_init(&lex, conn->query);
+
+	if (make_parse_tree(conn, &lex, &parse_tree))
+		return 1;
+
+	if (transform(conn, &parse_tree, query_tree))
+		return 1;
 
 	return 0;
 }

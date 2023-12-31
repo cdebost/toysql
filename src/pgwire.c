@@ -1,7 +1,5 @@
 #include "pgwire.h"
 
-#include "executor/select.h"
-#include "util/mem.h"
 #include <assert.h>
 #include <ctype.h>
 #include <stddef.h>
@@ -13,9 +11,13 @@
 #include <unistd.h>
 
 #include "connection.h"
+#include "executor/select.h"
+#include "executor/create.h"
+#include "util/mem.h"
 #include "parser/parser.h"
 #include "util/bytes.h"
 #include "util/error.h"
+#include "dtype.h"
 
 enum tag {
 	TAG_AUTHENTICATION_REQUEST = 'R',
@@ -382,12 +384,17 @@ int pgwire_send_data(struct conn *conn, struct pgwire_datarow *row)
 	return write_message(conn, &message);
 }
 
-static int pgwire_complete_command(struct conn *conn)
+static int pgwire_complete_command(struct conn *conn, void *query_tree)
 {
 	struct message message;
 
 	message.type	= TAG_COMMAND_COMPLETE;
-	message.payload = (u8 *)"SELECT 1";
+	if (*(u8 *)query_tree == COM_SELECT) {
+		message.payload = (u8 *)"SELECT 1";
+	} else {
+		assert(*(u8 *)query_tree == COM_CREATE);
+		message.payload = (u8 *)"CREATE TABLE";
+	}
 	message.len = strlen((char *)message.payload) + 1 + sizeof(message.len);
 
 	return write_message(conn, &message);
@@ -478,24 +485,36 @@ static int pgwire_execute_command(struct conn *conn)
 	if (parse(conn, &query_tree))
 		return 1;
 
-	if (sql_select(query_tree, &cur))
-		return 1;
+	if (*(u8 *)query_tree == COM_SELECT) {
+		if (sql_select(query_tree, &cur))
+			return 1;
 
-	make_row_desc(query_tree, &rowdesc);
-	if (pgwire_send_metadata(conn, &rowdesc))
-		return 1;
+		make_row_desc(query_tree, &rowdesc);
+		if (pgwire_send_metadata(conn, &rowdesc))
+			return 1;
 
-	for (;;) {
-		struct row	      row;
-		struct pgwire_datarow pg_row;
+		for (;;) {
+			struct row	      row;
+			struct pgwire_datarow pg_row;
 
-		if (cursor_next(&cur, &row))
-			break;
+			if (cursor_next(&cur, &row))
+				break;
 
-		serialize_row(&rowdesc, &row, &pg_row);
-		if (pgwire_send_data(conn, &pg_row))
+			serialize_row(&rowdesc, &row, &pg_row);
+			if (pgwire_send_data(conn, &pg_row))
+				return 1;
+		}
+	} else {
+		assert(*(u8 *)query_tree == COM_CREATE);
+
+		if (sql_create_table(query_tree))
 			return 1;
 	}
+
+	pgwire_flush_errors(conn);
+
+	if (pgwire_complete_command(conn, query_tree))
+		return 1;
 
 	return 0;
 }
@@ -508,8 +527,6 @@ void pgwire_handle_connection(struct conn *conn)
 	assert(conn->state == CONN_IDLE);
 
 	for (;;) {
-		int rc;
-
 		mem_root_clear(&conn->mem_root);
 
 		pgwire_ready_for_query(conn);
@@ -518,15 +535,9 @@ void pgwire_handle_connection(struct conn *conn)
 			break;
 		errlog(DEBUG, errmsg("query: %s", conn->query));
 
-		rc = pgwire_execute_command(conn);
+		pgwire_execute_command(conn);
 
 		if (pgwire_flush_errors(conn))
-			break;
-
-		if (rc)
-			continue;
-
-		if (pgwire_complete_command(conn))
 			break;
 	}
 

@@ -1,0 +1,47 @@
+create;
+ERROR:  Syntax error
+LINE 1: create;
+              ^
+DETAIL:  Expected TABLE after CREATE
+create table;
+ERROR:  Syntax error
+LINE 1: create table;
+                    ^
+DETAIL:  Expected identifier
+create table from;
+ERROR:  Syntax error
+LINE 1: create table from;
+                     ^
+DETAIL:  Expected identifier
+create table t1;
+ERROR:  Syntax error
+LINE 1: create table t1;
+                       ^
+DETAIL:  Expected column list
+create table t1 ();
+ERROR:  Syntax error
+LINE 1: create table t1 ();
+                         ^
+DETAIL:  Expected identifier
+create table t1 (c1);
+ERROR:  Syntax error
+LINE 1: create table t1 (c1);
+                           ^
+DETAIL:  Expected type
+create table t1 (c1 int(5));
+ERROR:  Syntax error
+LINE 1: create table t1 (c1 int(5));
+                              ^
+DETAIL:  This type does not take a length argument
+create table t1 (int);
+ERROR:  Syntax error
+LINE 1: create table t1 (int);
+                         ^
+DETAIL:  Expected identifier
+create table t1 (c1 int, c2 bigint, c3 smallint, c4 char(5));
+CREATE TABLE
+select * from t1;
+ c1 | c2 | c3 | c4 
+----+----+----+----
+(0 rows)
+

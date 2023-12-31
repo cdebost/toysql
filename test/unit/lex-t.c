@@ -53,6 +53,18 @@ static void test_keywords()
 	lex_init(&lex, "aS");
 	lex_next_token(&lex);
 	EXPECT_EQ(lex.token.tclass, TK_AS);
+
+	lex_init(&lex, "SASS");
+	lex_next_token(&lex);
+	EXPECT_EQ(lex.token.tclass, TK_IDENT);
+
+	lex_init(&lex, "TABLE");
+	lex_next_token(&lex);
+	EXPECT_EQ(lex.token.tclass, TK_TABLE);
+
+	lex_init(&lex, "TABLES");
+	lex_next_token(&lex);
+	EXPECT_EQ(lex.token.tclass, TK_IDENT);
 }
 
 static void test_quoted_ident()

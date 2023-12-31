@@ -23,9 +23,10 @@ struct heap_page *columns_heap = NULL;
 static u32 table_oid_seq  = 1;
 static u32 column_oid_seq = 1;
 
+/* Indexed by table oid */
+struct heap_page *heap_pages[1024];
+
 struct table table_foo;
-struct heap_page *table_foo_heap;
-struct heap_page *empty_heap;
 
 struct tables_tup {
 	u32 oid;
@@ -59,6 +60,7 @@ void sys_bootstrap(void)
 	if (sys_add_table(&tables))
 		errlog(PANIC, errmsg("Sys bootstrap failed"),
 		       errdetail("Could not add tables table"));
+	heap_pages[tables.oid] = tables_heap;
 
 	/* Create the columns table */
 	table_init(&columns, "columns", 5);
@@ -80,11 +82,13 @@ void sys_bootstrap(void)
 	if (sys_add_table(&columns))
 		errlog(PANIC, errmsg("Sys bootstrap failed"),
 		       errdetail("Could not add columns table"));
+	heap_pages[columns.oid] = columns_heap;
 }
 
 void init_dummy_tables(void)
 {
 	u8 tup[1024];
+	struct heap_page *heap;
 
 	table_init(&table_foo, "foo", /*ncols=*/2);
 	table_foo.cols[0].name = "a";
@@ -95,20 +99,21 @@ void init_dummy_tables(void)
 	table_foo.cols[1].typemod = -1;
 	sys_add_table(&table_foo);
 
-	table_foo_heap = malloc(PAGE_SIZE);
-	heap_page_init(table_foo_heap);
+	heap = malloc(PAGE_SIZE);
+	heap_page_init(heap);
+	heap_pages[table_foo.oid] = heap;
 	memset(tup, 0, sizeof(tup));
 	strcpy((char *)tup, "one");
 	*(tup + 5) = 1;
-	heap_page_add_tuple(table_foo_heap, tup, 9);
+	heap_page_add_tuple(heap, tup, 9);
 	memset(tup, 0, sizeof(tup));
 	strcpy((char *)tup, "two");
 	*(tup + 5) = 2;
-	heap_page_add_tuple(table_foo_heap, tup, 9);
+	heap_page_add_tuple(heap, tup, 9);
 	memset(tup, 0, sizeof(tup));
 	strcpy((char *)tup, "three");
 	*(tup + 5) = 3;
-	heap_page_add_tuple(table_foo_heap, tup, 9);
+	heap_page_add_tuple(heap, tup, 9);
 }
 
 int sys_add_table(struct table *tab)

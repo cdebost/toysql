@@ -6,7 +6,7 @@
 #include <string.h>
 
 /* Must match order of keywords in token_class in lex.h */
-static const char *keyword_names[] = { "AS", "FROM", "SELECT" };
+static const char *keyword_names[] = { "AS", "BIGINT", "CHAR", "CREATE", "FROM", "INT", "SELECT", "SMALLINT", "TABLE" };
 
 static size_t scan(const char *str, enum token_class *type)
 {
@@ -101,8 +101,9 @@ static size_t scan(const char *str, enum token_class *type)
 	*type = TK_IDENT;
 
 	for (k = 0; k < sizeof(keyword_names) / sizeof(keyword_names[0]); ++k) {
-		if (strncasecmp(str, keyword_names[k],
-				strlen(keyword_names[k])) == 0) {
+		if (strlen(keyword_names[k]) > i)
+			continue;
+		if (strncasecmp(str, keyword_names[k], i) == 0) {
 			*type = TK_AS + k;
 			break;
 		}

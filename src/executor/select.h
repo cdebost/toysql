@@ -2,12 +2,15 @@
 #define SELECT_H
 
 #include "executor/tablescan.h"
+#include "parser/parser.h"
 #include "storage/heap.h"
 #include "table.h"
 #include "util/vec.h"
 
 /* A fully-resolved representation of a select query */
 struct select {
+	enum sql_command sql_command;
+
 	/* list of struct select_col */
 	struct vec select_list;
 

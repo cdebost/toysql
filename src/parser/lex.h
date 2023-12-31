@@ -28,8 +28,14 @@ enum token_class {
 	TK_STAR,
 
 	TK_AS,
+	TK_BIGINT,
+	TK_CHAR,
+	TK_CREATE,
 	TK_FROM,
+	TK_INT,
 	TK_SELECT,
+	TK_SMALLINT,
+	TK_TABLE
 };
 
 struct lex_str {
